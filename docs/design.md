@@ -22,12 +22,39 @@ Here is the algorithm used to choose the next commit to deploy:
    `main` commit. If no such commit exists, comin uses the previously
    chosen `main` commit.
 
+## The comin OCI artifact selection algorithm
+
+OCI remotes (see `services.comin.ociRemotes`) follow the same
+algorithm, where the `main` and `testing` branches are replaced by the
+`main` and `testing` references of each remote. A reference is a tag,
+a semver constraint or a digest which is resolved to an artifact on
+each fetch.
+
+Since artifacts don't have a history, an artifact is "on top of"
+another one when it is newer: its version is higher for semver
+references, otherwise it has been created after the other one
+(according to the `org.opencontainers.image.created`
+annotation). Artifacts pinned by digest are always accepted.
+
+1. Fetch a subset of remotes by resolving their references
+2. Get the first `main` artifact which is different from the last
+   deployed `main` artifact and not older than it. If no such
+   artifact exists, comin gets the first artifact equal to the last
+   deployed `main` artifact.
+3. Get the first `testing` artifact which is different from the
+   previously chosen `main` artifact and not older than it. If no such
+   artifact exists, comin uses the previously chosen `main` artifact.
+4. If cosign public keys are configured, verify the chosen artifact
+   signature. Then pull the artifact and extract it.
+
 ## Internal architecture
 
 The main comin components are
 
-- the fetcher: fetch commits from remote and produce `RepositoryStatus`.
-- the builder: from a `RepositoryStatus`, it creates a `Generation` which is then evaluated and built.
+- the fetcher: fetch commits from Git remotes (or artifacts from OCI
+  remotes) and produce a `GitRepositoryStatus` (or an
+  `OCIRepositoryStatus`).
+- the builder: from a repository status, it creates a `Generation` which is then evaluated and built.
 - the deployer: from a `Generation`, it creates a `Deployment` which
   is used to decide how to run the `switch-to-configuration` script.
 - the manager: it is in charge of managing all this components.
