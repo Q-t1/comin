@@ -49,6 +49,8 @@ type Repository interface {
 
 type repository struct {
 	config types.OCIConfig
+	// verifier is nil when no cosign public keys are configured
+	verifier *cosignVerifier
 	// mu protects status, which is replaced at the end of each fetch
 	mu     sync.Mutex
 	status *pb.OCIRepositoryStatus
@@ -60,6 +62,13 @@ func New(config types.OCIConfig, main MainArtifact) (*repository, error) {
 	r := &repository{
 		config: config,
 		status: NewOCIRepositoryStatus(config, main),
+	}
+	if len(config.CosignPublicKeyPaths) > 0 {
+		verifier, err := newCosignVerifier(config.CosignPublicKeyPaths)
+		if err != nil {
+			return nil, err
+		}
+		r.verifier = verifier
 	}
 	return r, nil
 }
@@ -247,9 +256,11 @@ func (r *repository) update(ctx context.Context, status *pb.OCIRepositoryStatus)
 		return
 	}
 
+	signedBy := status.SelectedSignedBy
 	if selected.Digest != status.SelectedDigest {
 		remoteConfig, _ := r.remoteConfig(selectedRemote)
-		if err := r.pull(ctx, remoteConfig, selected.Digest); err != nil {
+		var err error
+		if signedBy, err = r.verifyAndPull(ctx, remoteConfig, selected.Digest); err != nil {
 			logrus.Errorf("oci: %s", err)
 			status.ErrorMsg = err.Error()
 			return
@@ -264,7 +275,9 @@ func (r *repository) update(ctx context.Context, status *pb.OCIRepositoryStatus)
 	status.SelectedRevision = selected.Revision
 	status.SelectedSourceUrl = selected.SourceUrl
 	status.SelectedCreated = selected.Created
-	status.SelectedShouldBeSigned = wrapperspb.Bool(false)
+	status.SelectedShouldBeSigned = wrapperspb.Bool(r.verifier != nil)
+	status.SelectedSigned = wrapperspb.Bool(signedBy != "")
+	status.SelectedSignedBy = signedBy
 	status.MainDigest = newMain.Digest
 	status.MainTag = newMain.Tag
 	status.MainCreated = newMain.Created
@@ -275,23 +288,33 @@ func (r *repository) update(ctx context.Context, status *pb.OCIRepositoryStatus)
 	gc(r.config.Path, []string{status.SelectedDigest, previousSelectedDigest, status.MainDigest})
 }
 
-// pull downloads and extracts the artifact digest from the remote
-func (r *repository) pull(ctx context.Context, remoteConfig types.OCIRemote, digest string) error {
+// verifyAndPull verifies the artifact is signed when cosign public
+// keys are configured, and then downloads and extracts it. It returns
+// the public key used to verify the artifact signature.
+func (r *repository) verifyAndPull(ctx context.Context, remoteConfig types.OCIRemote, digest string) (signedBy string, err error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Duration(remoteConfig.Timeout)*time.Second)
 	defer cancel()
 	repo, err := repositoryName(remoteConfig)
 	if err != nil {
-		return err
+		return "", err
 	}
 	opts, err := remoteOptions(ctx, remoteConfig, repo)
 	if err != nil {
-		return err
+		return "", err
+	}
+	// The artifact is verified before being extracted in order to
+	// not extract untrusted content.
+	if r.verifier != nil {
+		if signedBy, err = r.verifier.verify(repo, digest, opts); err != nil {
+			return "", fmt.Errorf("the artifact %s is not signed by a trusted cosign key: %w", digest, err)
+		}
 	}
 	if err := pull(r.config.Path, repo, digest, remoteConfig.LayerMediaType, opts); err != nil {
-		return fmt.Errorf("failed to pull the artifact %s from %s: %w", digest, repo, err)
+		return "", fmt.Errorf("failed to pull the artifact %s from %s: %w", digest, repo, err)
 	}
-	return nil
+	return signedBy, nil
 }
+
 
 // checkNotOlder returns an error if the candidate artifact is older
 // than the main artifact. Since artifacts don't have a history, this
