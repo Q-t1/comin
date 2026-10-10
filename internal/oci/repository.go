@@ -315,7 +315,6 @@ func (r *repository) verifyAndPull(ctx context.Context, remoteConfig types.OCIRe
 	return signedBy, nil
 }
 
-
 // checkNotOlder returns an error if the candidate artifact is older
 // than the main artifact. Since artifacts don't have a history, this
 // is how rollbacks to older artifacts are refused. An artifact pinned
