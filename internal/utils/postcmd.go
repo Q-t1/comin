@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"strings"
 
 	pb "github.com/nlewo/comin/pkg/protobuf"
 	"github.com/sirupsen/logrus"
@@ -44,32 +43,22 @@ func RunPostCommand(command, phase string, g *pb.Generation, status, errMsg stri
 }
 
 func gitSha(g *pb.Generation) string {
-	if g.Source != nil && g.Source.GetGit() != nil {
-		return g.Source.GetGit().SelectedCommitId
-	}
-	return ""
+	return g.GetSource().Id()
 }
 
 func gitRef(g *pb.Generation) string {
-	if g.Source != nil && g.Source.GetGit() != nil {
-		git := g.Source.GetGit()
-		return fmt.Sprintf("%s/%s", git.SelectedRemoteName, git.SelectedBranchName)
+	if g.GetSource() == nil {
+		return ""
 	}
-	return ""
+	return fmt.Sprintf("%s/%s", g.GetSource().RemoteName(), g.GetSource().RefName())
 }
 
 func gitMessage(g *pb.Generation) string {
-	if g.Source != nil && g.Source.GetGit() != nil {
-		return strings.Trim(g.Source.GetGit().SelectedCommitMsg, "\n")
-	}
-	return ""
+	return g.GetSource().Message()
 }
 
 func cominHostname(g *pb.Generation) string {
-	if g.Source != nil && g.Source.GetGit() != nil {
-		return g.Source.GetGit().Hostname
-	}
-	return ""
+	return g.GetSource().Hostname()
 }
 
 func cominGeneration(g *pb.Generation) string {

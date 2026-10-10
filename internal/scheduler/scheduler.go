@@ -24,23 +24,23 @@ func New() Scheduler {
 	return sched
 }
 
-func (s Scheduler) FetchRemotes(fetcher *fetcher.GitFetcher, remotes []types.Remote) {
-	for _, remote := range remotes {
-		if remote.Poller.Period != 0 {
-			logrus.Infof("scheduler: starting the period job for the remote '%s' with period %ds", remote.Name, remote.Poller.Period)
-			_, _ = s.s.NewJob(
-				gocron.DurationJob(
-					time.Duration(remote.Poller.Period)*time.Second,
-				),
-				gocron.NewTask(
-					func() {
-						logrus.Debugf("scheduler: running task for remote %s", remote.Name)
-						fetcher.TriggerFetch([]string{remote.Name})
-					},
-				),
-				gocron.WithSingletonMode(gocron.LimitModeReschedule),
-				gocron.WithName(fmt.Sprintf("fetch-remote-%s", remote.Name)),
-			)
-		}
+// FetchRemote periodically triggers a fetch of the remote remoteName
+// if the poller period is not 0.
+func (s Scheduler) FetchRemote(fetcher fetcher.Fetcher, remoteName string, poller types.Poller) {
+	if poller.Period != 0 {
+		logrus.Infof("scheduler: starting the period job for the remote '%s' with period %ds", remoteName, poller.Period)
+		_, _ = s.s.NewJob(
+			gocron.DurationJob(
+				time.Duration(poller.Period)*time.Second,
+			),
+			gocron.NewTask(
+				func() {
+					logrus.Debugf("scheduler: running task for remote %s", remoteName)
+					fetcher.TriggerFetch([]string{remoteName})
+				},
+			),
+			gocron.WithSingletonMode(gocron.LimitModeReschedule),
+			gocron.WithName(fmt.Sprintf("fetch-remote-%s", remoteName)),
+		)
 	}
 }

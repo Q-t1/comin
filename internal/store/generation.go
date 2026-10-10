@@ -112,7 +112,8 @@ func StringToBuildStatus(statusStr string) BuildStatus {
 	}
 }
 
-func (s *Store) NewGeneration(hostname, repositoryDir, systemAttr string, rs *protobuf.GitRepositoryStatus, buildAttemptsLimit int) (g protobuf.Generation) {
+// NewGitSource creates the Source of a generation from a Git repository status.
+func NewGitSource(hostname, repositoryDir, systemAttr string, rs *protobuf.GitRepositoryStatus) *protobuf.Source {
 	// Find the selected remote URL
 	selectedRemoteUrl := ""
 	for _, remote := range rs.Remotes {
@@ -121,30 +122,33 @@ func (s *Store) NewGeneration(hostname, repositoryDir, systemAttr string, rs *pr
 			break
 		}
 	}
-
-	g = protobuf.Generation{
-		Uuid:   uuid.New().String(),
-		Source: &protobuf.Source{
-			Source: &protobuf.Source_Git{
-				Git: &protobuf.Git{
-					RepositorySubdir:        repositoryDir,
-					SystemAttr:              systemAttr,
-					Hostname:                hostname,
-					SelectedRemoteUrl:       selectedRemoteUrl,
-					SelectedRemoteName:      rs.SelectedRemoteName,
-					SelectedBranchName:      rs.SelectedBranchName,
-					SelectedCommitId:        rs.SelectedCommitId,
-					SelectedCommitMsg:       rs.SelectedCommitMsg,
-					SelectedBranchIsTesting: rs.SelectedBranchIsTesting,
-					MainCommitId:            rs.MainCommitId,
-					MainRemoteName:          rs.MainRemoteName,
-					MainBranchName:          rs.MainBranchName,
-				},
+	return &protobuf.Source{
+		Source: &protobuf.Source_Git{
+			Git: &protobuf.Git{
+				RepositorySubdir:        repositoryDir,
+				SystemAttr:              systemAttr,
+				Hostname:                hostname,
+				SelectedRemoteUrl:       selectedRemoteUrl,
+				SelectedRemoteName:      rs.SelectedRemoteName,
+				SelectedBranchName:      rs.SelectedBranchName,
+				SelectedCommitId:        rs.SelectedCommitId,
+				SelectedCommitMsg:       rs.SelectedCommitMsg,
+				SelectedBranchIsTesting: rs.SelectedBranchIsTesting,
+				MainCommitId:            rs.MainCommitId,
+				MainRemoteName:          rs.MainRemoteName,
+				MainBranchName:          rs.MainBranchName,
 			},
 		},
-		EvalStatus:   EvalInit.String(),
-		BuildStatus: BuildInit.String(),
-		AttemptNumber: 0,
+	}
+}
+
+func (s *Store) NewGeneration(source *protobuf.Source, buildAttemptsLimit int) (g protobuf.Generation) {
+	g = protobuf.Generation{
+		Uuid:               uuid.New().String(),
+		Source:             source,
+		EvalStatus:         EvalInit.String(),
+		BuildStatus:        BuildInit.String(),
+		AttemptNumber:      0,
 		BuildAttemptsLimit: int32(buildAttemptsLimit),
 	}
 	s.persisted.Generations = append(s.persisted.Generations, &g)

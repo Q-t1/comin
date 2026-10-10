@@ -9,14 +9,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// getGitFromGeneration is a helper function to safely extract Git source from a Generation
-func getGitFromGeneration(g *protobuf.Generation) *protobuf.Git {
-	if g != nil && g.Source != nil {
-		return g.Source.GetGit()
-	}
-	return &protobuf.Git{}
-}
-
 type Prometheus struct {
 	promRegistry         *prometheus.Registry
 	buildInfo            *prometheus.GaugeVec
@@ -115,8 +107,7 @@ func Subscribe(broker *brokerPkg.Broker, metrics *Prometheus) {
 			case m.GetDeploymentFinishedType() != nil:
 				d := m.GetDeploymentFinishedType().GetDeployment()
 				metrics.lastDeploymentFailed.Set(boolToFloat64(d.GetStatus() == "failed"))
-				git := getGitFromGeneration(d.GetGeneration())
-				metrics.SetDeploymentInfo(git.GetSelectedCommitId(), d.GetStatus())
+				metrics.SetDeploymentInfo(d.GetGeneration().GetSource().Id(), d.GetStatus())
 
 			case m.GetSuspend() != nil:
 				metrics.isSuspended.Set(boolToFloat64(true))

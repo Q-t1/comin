@@ -23,14 +23,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// getGitFromGeneration is a helper function to safely extract Git source from a Generation
-func getGitFromGeneration(g *protobuf.Generation) *protobuf.Git {
-	if g != nil && g.Source != nil {
-		return g.Source.GetGit()
-	}
-	return &protobuf.Git{}
-}
-
 var configFilepath string
 
 var runCmd = &cobra.Command{
@@ -93,10 +85,9 @@ var runCmd = &cobra.Command{
 		var mainCommitId string
 		var lastDeployment *protobuf.Deployment
 		if ok, ld := store.LastDeployment(); ok {
-			git := getGitFromGeneration(ld.Generation)
-			mainCommitId = git.MainCommitId
+			mainCommitId = ld.Generation.GetSource().GetGit().GetMainCommitId()
 			lastDeployment = ld
-			metrics.SetDeploymentInfo(git.SelectedCommitId, ld.Status)
+			metrics.SetDeploymentInfo(ld.Generation.GetSource().Id(), ld.Status)
 		}
 		repository, err := repository.New(gitConfig, mainCommitId, metrics)
 		if err != nil {
@@ -107,7 +98,9 @@ var runCmd = &cobra.Command{
 		fetcher := fetcher.NewGitFetcher(repository, broker)
 		fetcher.Start(cmd.Context())
 		sched := scheduler.New()
-		sched.FetchRemotes(fetcher, cfg.Remotes)
+		for _, remote := range cfg.Remotes {
+			sched.FetchRemote(fetcher, remote.Name, remote.Poller)
+		}
 
 		builder := builder.New(store, executor, broker, gitConfig.Path, gitConfig.Dir, cfg.SystemAttr, cfg.Hostname, gitConfig.Submodules, time.Duration(cfg.EvalTimeout)*time.Second, time.Duration(cfg.BuildTimeout)*time.Second, cfg.BuildAttemptsLimit, time.Duration(cfg.BuildRetryTimer)*time.Second, cfg.PostBuildCommand)
 		deployer := deployer.New(store, executor.Deploy, lastDeployment, cfg.PostDeploymentCommand, broker)

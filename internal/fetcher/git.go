@@ -2,7 +2,6 @@ package fetcher
 
 import (
 	"context"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -22,6 +21,7 @@ type GitFetcher struct {
 	submitRemotes    chan []string
 	repo             repository.Repository
 	broker           *broker.Broker
+	remoteNames      []string
 }
 
 func NewGitFetcher(repo repository.Repository, broker *broker.Broker) *GitFetcher {
@@ -31,6 +31,9 @@ func NewGitFetcher(repo repository.Repository, broker *broker.Broker) *GitFetche
 		submitRemotes: make(chan []string),
 	}
 	f.repositoryStatus = repo.GetRepositoryStatus()
+	for _, r := range f.repositoryStatus.Remotes {
+		f.remoteNames = append(f.remoteNames, r.Name)
+	}
 	return f
 }
 
@@ -40,6 +43,10 @@ func (f *GitFetcher) IsFetching() bool {
 
 func (f *GitFetcher) TriggerFetch(remotes []string) {
 	f.submitRemotes <- remotes
+}
+
+func (f *GitFetcher) RemoteNames() []string {
+	return f.remoteNames
 }
 
 type RemoteState struct {
@@ -65,43 +72,17 @@ func (f *GitFetcher) GetState() *protobuf.Fetcher {
 
 func (f *GitFetcher) Start(ctx context.Context) {
 	logrus.Info("fetcher git: starting")
-	go func() {
-		remotes := make([]string, 0)
-		var workerRepositoryStatusCh chan *protobuf.GitRepositoryStatus
-		for {
-			select {
-			case submittedRemotes := <-f.submitRemotes:
-				logrus.Debugf("fetch: remotes submitted: %s", submittedRemotes)
-				remotes = union(remotes, submittedRemotes)
-			case rs := <-workerRepositoryStatusCh:
-				f.isFetching.Store(false)
-				f.mu.Lock()
-				updated := rs.SelectedCommitId != f.repositoryStatus.SelectedCommitId ||
-					(rs.SelectedBranchIsTesting != nil &&
-						rs.SelectedBranchIsTesting.GetValue() != f.repositoryStatus.SelectedBranchIsTesting.GetValue())
-				if updated {
-					f.repositoryStatus = rs
-				}
-				f.mu.Unlock()
-				// Check if the commit is verified (signed when it should be)
-				verified := !rs.SelectedCommitShouldBeSigned.GetValue() || rs.SelectedCommitSigned.GetValue()
-				f.broker.Publish(&protobuf.Event{Type: &protobuf.Event_Fetched_{Fetched: &protobuf.Event_Fetched{Type: &protobuf.Event_Fetched_GitRepositoryStatus{GitRepositoryStatus: rs}, Updated: updated, Verified: verified}}, CreatedAt: timestamppb.New(time.Now().UTC())})
-			}
-			if !f.isFetching.Load() && len(remotes) != 0 {
-				f.isFetching.Store(true)
-				workerRepositoryStatusCh = f.repo.FetchAndUpdate(ctx, remotes)
-				remotes = []string{}
-			}
+	go loop(ctx, f.submitRemotes, &f.isFetching, f.repo.FetchAndUpdate, func(rs *protobuf.GitRepositoryStatus) {
+		f.mu.Lock()
+		updated := rs.SelectedCommitId != f.repositoryStatus.SelectedCommitId ||
+			(rs.SelectedBranchIsTesting != nil &&
+				rs.SelectedBranchIsTesting.GetValue() != f.repositoryStatus.SelectedBranchIsTesting.GetValue())
+		if updated {
+			f.repositoryStatus = rs
 		}
-	}()
-}
-
-func union(array1, array2 []string) []string {
-	for _, e2 := range array2 {
-		exist := slices.Contains(array1, e2)
-		if !exist {
-			array1 = append(array1, e2)
-		}
-	}
-	return array1
+		f.mu.Unlock()
+		// Check if the commit is verified (signed when it should be)
+		verified := !rs.SelectedCommitShouldBeSigned.GetValue() || rs.SelectedCommitSigned.GetValue()
+		f.broker.Publish(&protobuf.Event{Type: &protobuf.Event_Fetched_{Fetched: &protobuf.Event_Fetched{Type: &protobuf.Event_Fetched_GitRepositoryStatus{GitRepositoryStatus: rs}, Updated: updated, Verified: verified}}, CreatedAt: timestamppb.New(time.Now().UTC())})
+	})
 }

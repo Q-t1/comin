@@ -21,14 +21,6 @@ var (
 	dimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
-// getGitFromGeneration is a helper function to safely extract Git source from a Generation
-func getGitFromGeneration(g *protobuf.Generation) *protobuf.Git {
-	if g != nil && g.Source != nil {
-		return g.Source.GetGit()
-	}
-	return &protobuf.Git{}
-}
-
 func formatTime(t time.Time) string {
 	if time.Since(t) < 10*time.Second {
 		return "less than 10 seconds ago"
@@ -142,14 +134,14 @@ func (bm BuilderModel) View() string {
 
 	if bm.Generation != nil {
 		g := bm.Generation
-		git := getGitFromGeneration(g)
-		commitID := git.SelectedCommitId
+		src := g.GetSource()
+		commitID := src.Id()
 		if len(commitID) > 8 {
 			commitID = commitID[:8]
 		}
 		b.WriteString("  " + labelStyle.Render("Commit:  ") +
-			fmt.Sprintf("%s from %s/%s\n", commitID, git.SelectedRemoteName, git.SelectedBranchName))
-		if msg := commitMsgSummary(git.SelectedCommitMsg); msg != "" {
+			fmt.Sprintf("%s from %s/%s\n", commitID, src.RemoteName(), src.RefName()))
+		if msg := commitMsgSummary(src.Message()); msg != "" {
 			b.WriteString("  " + labelStyle.Render("Message: ") + msg + "\n")
 		}
 
@@ -226,14 +218,14 @@ func (dm DeployerModel) View() string {
 		d := dm.Deployment
 		if d.Generation != nil {
 			g := d.Generation
-			git := getGitFromGeneration(g)
-			commitID := git.SelectedCommitId
+			src := g.GetSource()
+			commitID := src.Id()
 			if len(commitID) > 8 {
 				commitID = commitID[:8]
 			}
 			b.WriteString("  " + labelStyle.Render("Commit:    ") +
-				fmt.Sprintf("%s from %s/%s\n", commitID, git.SelectedRemoteName, git.SelectedBranchName))
-			if msg := commitMsgSummary(git.SelectedCommitMsg); msg != "" {
+				fmt.Sprintf("%s from %s/%s\n", commitID, src.RemoteName(), src.RefName()))
+			if msg := commitMsgSummary(src.Message()); msg != "" {
 				b.WriteString("  " + labelStyle.Render("Message:   ") + msg + "\n")
 			}
 		}

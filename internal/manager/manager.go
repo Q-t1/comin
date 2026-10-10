@@ -42,7 +42,7 @@ type Manager struct {
 	prometheus      prometheus.Prometheus
 	storage         *store.Store
 	scheduler       scheduler.Scheduler
-	Fetcher         *fetcher.GitFetcher
+	Fetcher         fetcher.Fetcher
 	Builder         *builder.Builder
 	deployer        *deployer.Deployer
 	executor        executor.Executor
@@ -60,7 +60,7 @@ type Manager struct {
 func New(s *store.Store,
 	p prometheus.Prometheus,
 	sched scheduler.Scheduler,
-	fetcher *fetcher.GitFetcher,
+	fetcher fetcher.Fetcher,
 	builder *builder.Builder,
 	deployer *deployer.Deployer,
 	machineId string,
@@ -119,7 +119,7 @@ func (m *Manager) DeploymentLatestSubmit(operation string) error {
 	}
 	// If no operation is provided, use default based on branch type
 	if operation == "" {
-		if latest.Generation.Source != nil && latest.Generation.Source.GetGit() != nil && latest.Generation.Source.GetGit().SelectedBranchIsTesting != nil && latest.Generation.Source.GetGit().SelectedBranchIsTesting.Value {
+		if latest.Generation.GetSource().IsTesting() {
 			operation = "test"
 		} else {
 			operation = "switch"
@@ -171,7 +171,8 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 					rs := fetched.GetGitRepositoryStatus()
 					if fetched.Verified {
 						logrus.Infof("manager: a generation is evaluating for commit %s", rs.SelectedCommitId)
-						generation := m.storage.NewGeneration(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), rs, m.Builder.GetBuildAttemptsLimit())
+						source := store.NewGitSource(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), rs)
+						generation := m.storage.NewGeneration(source, m.Builder.GetBuildAttemptsLimit())
 						err := m.Builder.Eval(ctx, &generation)
 						if err != nil {
 							logrus.Error(err)
@@ -205,9 +206,8 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 					continue
 				}
 				if generation.BuildErr == "" {
-					git := generation.Source.GetGit()
-					logrus.Infof("manager: a generation is available for deployment with commit %s", git.SelectedCommitId)
-					operation := m.getOperationFromConfigurationOperations(git.SelectedRemoteName, git.SelectedBranchName)
+					logrus.Infof("manager: a generation is available for deployment with commit %s", generation.Source.Id())
+					operation := m.getOperation(generation.Source)
 					if !m.deployer.IsAlreadyDeployed(&generation, operation) {
 						m.DeployConfirmer.Submit(generationUUID)
 					}
@@ -220,8 +220,7 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 					logrus.Error(err)
 					continue
 				}
-				git := generation.Source.GetGit()
-				operation := m.getOperationFromConfigurationOperations(git.SelectedRemoteName, git.SelectedBranchName)
+				operation := m.getOperation(generation.Source)
 				reason := fmt.Sprintf("The generation %s needs to be deployed", generationUUID)
 				m.deployer.Submit(&generation, operation, false, reason)
 			}
@@ -233,6 +232,12 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 // to each remote/branch. It is a map looking such as:
 // { origin: { main: switch, testing: test }, local { main: switch }
 type ConfigurationOperations map[string](map[string]string)
+
+// getOperation returns the operation associated to the remote and
+// reference a generation source has been selected from.
+func (m *Manager) getOperation(source *protobuf.Source) string {
+	return m.getOperationFromConfigurationOperations(source.RemoteName(), source.RefName())
+}
 
 func (m *Manager) getOperationFromConfigurationOperations(remote, branch string) (operation string) {
 	operation = "test"
