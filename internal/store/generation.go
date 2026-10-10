@@ -175,6 +175,8 @@ func NewOCISource(hostname, repositoryDir, systemAttr string, rs *protobuf.OCIRe
 }
 
 func (s *Store) NewGeneration(source *protobuf.Source, buildAttemptsLimit int) (g protobuf.Generation) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	g = protobuf.Generation{
 		Uuid:               uuid.New().String(),
 		Source:             source,

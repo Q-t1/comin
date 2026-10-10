@@ -123,9 +123,9 @@ func TestBuild(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.False(c, m.Builder.State().IsEvaluating.GetValue())
 		assert.False(c, m.Builder.State().IsBuilding.GetValue())
-		g, _ := m.storage.GenerationGet(m.Builder.GenerationUuid)
+		g, _ := m.storage.GenerationGet(m.Builder.State().GenerationUuid)
 		assert.NotNil(c, g.EvalErr)
-		assert.Nil(c, m.deployer.GenerationToDeploy)
+		assert.Nil(c, m.deployer.State().GenerationToDeploy)
 	}, 5*time.Second, 100*time.Millisecond)
 
 	commitId = "id-2"
@@ -138,9 +138,9 @@ func TestBuild(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.False(c, m.Builder.State().IsEvaluating.GetValue())
 		assert.True(c, m.Builder.State().IsBuilding.GetValue())
-		g, _ := m.storage.GenerationGet(m.Builder.GenerationUuid)
+		g, _ := m.storage.GenerationGet(m.Builder.State().GenerationUuid)
 		assert.Empty(c, g.EvalErr)
-		assert.Nil(c, m.deployer.GenerationToDeploy)
+		assert.Nil(c, m.deployer.State().GenerationToDeploy)
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// This simulates the failure of a build
@@ -148,9 +148,9 @@ func TestBuild(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.False(c, m.Builder.State().IsEvaluating.GetValue())
 		assert.False(c, m.Builder.State().IsBuilding.GetValue())
-		g, _ := m.storage.GenerationGet(m.Builder.GenerationUuid)
+		g, _ := m.storage.GenerationGet(m.Builder.State().GenerationUuid)
 		assert.NotNil(c, g.BuildErr)
-		assert.Nil(c, m.deployer.GenerationToDeploy)
+		assert.Nil(c, m.deployer.State().GenerationToDeploy)
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// This simulates the success of a build
@@ -163,8 +163,9 @@ func TestBuild(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.False(c, m.Builder.State().IsEvaluating.GetValue())
 		assert.False(c, m.Builder.State().IsBuilding.GetValue())
-		g, _ := m.storage.GenerationGet(m.Builder.GenerationUuid)
+		g, _ := m.storage.GenerationGet(m.Builder.State().GenerationUuid)
 		assert.Empty(c, g.BuildErr)
+		assert.Equal(c, "id-3", g.GetSource().Id())
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// This simulates the success of another build and ensure this
@@ -178,8 +179,9 @@ func TestBuild(t *testing.T) {
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.False(c, m.Builder.State().IsEvaluating.GetValue())
 		assert.False(c, m.Builder.State().IsBuilding.GetValue())
-		g, _ := m.storage.GenerationGet(m.Builder.GenerationUuid)
+		g, _ := m.storage.GenerationGet(m.Builder.State().GenerationUuid)
 		assert.Empty(c, g.BuildErr)
+		assert.Equal(c, "id-4", g.GetSource().Id())
 	}, 5*time.Second, 100*time.Millisecond)
 
 	// This simulates the push of new commit while building
@@ -223,7 +225,7 @@ func TestDeploy(t *testing.T) {
 	assert.False(t, m.Builder.State().IsBuilding.GetValue())
 	m.deployer.Submit(&protobuf.Generation{}, "test", false, "")
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.Equal(c, "profile-path", m.deployer.State().Deployment.ProfilePath)
+		assert.Equal(c, "profile-path", m.deployer.State().GetDeployment().GetProfilePath())
 	}, 5*time.Second, 100*time.Millisecond)
 
 }
