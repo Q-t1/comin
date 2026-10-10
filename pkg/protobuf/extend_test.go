@@ -40,3 +40,31 @@ func TestSourceAccessorsGit(t *testing.T) {
 	assert.Equal(t, "machine", s.Hostname())
 	assert.True(t, s.IsTesting())
 }
+
+func TestSourceAccessorsOCI(t *testing.T) {
+	s := &Source{
+		Source: &Source_Oci{
+			Oci: &OCI{
+				Hostname:           "machine",
+				SelectedRemoteName: "ghcr",
+				SelectedTag:        "1.2.3",
+				SelectedDigest:     "sha256:abcd",
+				SelectedRevision:   "main@sha1:1234",
+				SelectedIsTesting:  wrapperspb.Bool(false),
+			},
+		},
+	}
+	assert.Equal(t, "ghcr", s.RemoteName())
+	assert.Equal(t, "1.2.3", s.RefName())
+	assert.Equal(t, "sha256:abcd", s.Id())
+	assert.Equal(t, "main@sha1:1234", s.Message())
+	assert.Equal(t, "machine", s.Hostname())
+	assert.False(t, s.IsTesting())
+
+	// An artifact pinned by digest has no tag
+	s.GetOci().SelectedTag = ""
+	assert.Equal(t, "main", s.RefName())
+	s.GetOci().SelectedIsTesting = wrapperspb.Bool(true)
+	assert.Equal(t, "testing", s.RefName())
+	assert.True(t, s.IsTesting())
+}

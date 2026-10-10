@@ -1,5 +1,5 @@
 // To generate Go code, from the repository root directory, run:
-// protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative internal/protobuf/services.proto 
+// protoc --go_out=. --go_opt=paths=source_relative --go-grpc_out=. --go-grpc_opt=paths=source_relative pkg/protobuf/services.proto 
 
 edition = "2023";
 
@@ -71,6 +71,7 @@ message Event {
     bool verified = 2;
     oneof Type {
       GitRepositoryStatus gitRepositoryStatus = 3;
+      OCIRepositoryStatus ociRepositoryStatus = 4;
     }
   }
   message Log {
@@ -133,9 +134,36 @@ message Git {
   string main_branch_name = 12;
 }
 
+message OCI {
+  string repository_subdir = 1;
+  string system_attr = 2;
+  string hostname = 3;
+
+  string selected_remote_url = 4;
+  string selected_remote_name = 5;
+  // The tag the selected artifact has been resolved from. It is empty
+  // when the artifact is pinned by digest.
+  string selected_tag = 6;
+  // The manifest digest of the selected artifact
+  string selected_digest = 7;
+  google.protobuf.BoolValue selected_is_testing = 8;
+  // The org.opencontainers.image.revision annotation
+  string selected_revision = 9;
+  // The org.opencontainers.image.source annotation
+  string selected_source_url = 10;
+  // The org.opencontainers.image.created annotation
+  string selected_created = 11;
+
+  string main_digest = 12;
+  string main_tag = 13;
+  string main_created = 14;
+  string main_remote_name = 15;
+}
+
 message Source {
   oneof source {
     Git git = 1;
+    OCI oci = 2;
   }
 }
 
@@ -246,6 +274,7 @@ message Fetcher {
   google.protobuf.BoolValue is_fetching = 1;
   oneof status {
     GitRepositoryStatus git_repository_status = 2;
+    OCIRepositoryStatus oci_repository_status = 3;
   }
 }
 
@@ -304,4 +333,47 @@ message Store {
   int32 deployment_boot_entry_capacity = 9;
   int32 deployment_successful_capacity = 10;
   int32 deployment_any_capacity = 11;
+}
+message OCIReference {
+  // The reference as configured, such as "tag:latest" or
+  // "semver:>=1.0.0". It is empty when the reference is not configured.
+  string spec = 1;
+  string tag = 2;
+  string digest = 3;
+  string revision = 4;
+  string created = 5;
+  string error_msg = 6;
+  string source_url = 7;
+}
+
+message OCIRemote {
+  string name = 1;
+  string url = 2;
+  string fetch_error_msg = 3;
+  OCIReference main = 4;
+  OCIReference testing = 5;
+  google.protobuf.Timestamp fetched_at = 6;
+  google.protobuf.BoolValue fetched = 7;
+}
+
+message OCIRepositoryStatus {
+  // The manifest digest of the artifact selected to be deployed
+  string selected_digest = 1;
+  string selected_tag = 2;
+  string selected_remote_name = 3;
+  google.protobuf.BoolValue selected_is_testing = 4;
+  string selected_revision = 5;
+  string selected_source_url = 6;
+  string selected_created = 7;
+  google.protobuf.BoolValue selected_signed = 8;
+  string selected_signed_by = 9;
+  // True if public keys were available when the artifact has been verified
+  google.protobuf.BoolValue selected_should_be_signed = 10;
+  // The deployed main artifact. It is used to refuse older artifacts.
+  string main_digest = 11;
+  string main_tag = 12;
+  string main_created = 13;
+  string main_remote_name = 14;
+  repeated OCIRemote remotes = 15;
+  string error_msg = 16;
 }

@@ -14,35 +14,51 @@ func (s *Source) RemoteName() string {
 	switch {
 	case s.GetGit() != nil:
 		return s.GetGit().SelectedRemoteName
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedRemoteName
 	}
 	return ""
 }
 
-// RefName returns the name of the reference (the Git branch) the
-// source has been selected from.
+// RefName returns the name of the reference the source has been
+// selected from: the Git branch or the OCI tag. When an OCI artifact
+// is pinned by digest, this is "main" or "testing".
 func (s *Source) RefName() string {
 	switch {
 	case s.GetGit() != nil:
 		return s.GetGit().SelectedBranchName
+	case s.GetOci() != nil:
+		if s.GetOci().SelectedTag != "" {
+			return s.GetOci().SelectedTag
+		}
+		if s.IsTesting() {
+			return "testing"
+		}
+		return "main"
 	}
 	return ""
 }
 
-// Id returns the identifier of the source content (the Git commit ID).
+// Id returns the identifier of the source content: the Git commit ID
+// or the OCI manifest digest.
 func (s *Source) Id() string {
 	switch {
 	case s.GetGit() != nil:
 		return s.GetGit().SelectedCommitId
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedDigest
 	}
 	return ""
 }
 
-// Message returns a message describing the source content (the Git
-// commit message).
+// Message returns a message describing the source content: the Git
+// commit message or the revision the OCI artifact has been built from.
 func (s *Source) Message() string {
 	switch {
 	case s.GetGit() != nil:
 		return strings.Trim(s.GetGit().SelectedCommitMsg, "\n")
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedRevision
 	}
 	return ""
 }
@@ -53,6 +69,8 @@ func (s *Source) IsTesting() bool {
 	switch {
 	case s.GetGit() != nil:
 		return s.GetGit().SelectedBranchIsTesting.GetValue()
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedIsTesting.GetValue()
 	}
 	return false
 }
@@ -62,6 +80,8 @@ func (s *Source) Hostname() string {
 	switch {
 	case s.GetGit() != nil:
 		return s.GetGit().Hostname
+	case s.GetOci() != nil:
+		return s.GetOci().Hostname
 	}
 	return ""
 }
