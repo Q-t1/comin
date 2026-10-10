@@ -103,6 +103,12 @@ func deploymentList(dpls []*protobuf.Deployment, store *protobuf.Store, newestFi
 			git := dpl.Generation.Source.GetGit()
 			fmt.Printf("    commit id        %s\n", git.SelectedCommitId)
 		}
+		if ociSource := dpl.Generation.GetSource().GetOci(); ociSource != nil {
+			fmt.Printf("    artifact digest  %s\n", ociSource.SelectedDigest)
+			if ociSource.SelectedRevision != "" {
+				fmt.Printf("    revision         %s\n", ociSource.SelectedRevision)
+			}
+		}
 		if lists := retentionListsForDeployment(dpl.Uuid, store); len(lists) > 0 {
 			fmt.Printf("  part of retention  %s\n", strings.Join(lists, ", "))
 		}

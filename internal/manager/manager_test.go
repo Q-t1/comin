@@ -19,6 +19,7 @@ import (
 	"github.com/nlewo/comin/pkg/protobuf"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 var emptyConfigurationOperations = map[string]map[string]string{}
@@ -96,7 +97,7 @@ func TestBuild(t *testing.T) {
 		return false, "profile-path", nil
 	}
 	d := deployer.New(s, deployFunc, nil, "", bk)
-	e, _ := executor.NewGitNixFlakeNixOS("", false)
+	e, _ := executor.NewGitNixFlakeNixOS("", "", false)
 	bc := NewConfirmer(bk, Without, 0, "")
 	bc.Start()
 	dc := NewConfirmer(bk, Without, 0, "")
@@ -210,7 +211,7 @@ func TestDeploy(t *testing.T) {
 		return false, "profile-path", nil
 	}
 	d := deployer.New(s, deployFunc, nil, "", bk)
-	e, _ := executor.NewGitNixFlakeNixOS("", false)
+	e, _ := executor.NewGitNixFlakeNixOS("", "", false)
 	bc := NewConfirmer(bk, Without, 0, "")
 	bc.Start()
 	dc := NewConfirmer(bk, Without, 0, "")
@@ -240,7 +241,7 @@ func TestIncorrectMachineId(t *testing.T) {
 	eMock := NewExecutorMock("invalid-machine-id")
 	b := builder.New(s, eMock, bk, "repoPath", "", "", "my-machine", false, 2*time.Second, 2*time.Second, 0, 30*time.Second, "")
 	d := mkDeployerMock(t)
-	e, _ := executor.NewGitNixFlakeNixOS("", false)
+	e, _ := executor.NewGitNixFlakeNixOS("", "", false)
 	bc := NewConfirmer(bk, Without, 0, "")
 	bc.Start()
 	dc := NewConfirmer(bk, Without, 0, "")
@@ -272,7 +273,7 @@ func TestCorrectMachineId(t *testing.T) {
 	eMock.evalOk <- true
 	b := builder.New(s, eMock, bk, "repoPath", "", "", "my-machine", false, 2*time.Second, 2*time.Second, 0, 30*time.Second, "")
 	d := mkDeployerMock(t)
-	e, _ := executor.NewGitNixFlakeNixOS("", false)
+	e, _ := executor.NewGitNixFlakeNixOS("", "", false)
 	bc := NewConfirmer(bk, Without, 0, "")
 	bc.Start()
 	dc := NewConfirmer(bk, Without, 0, "")
@@ -304,7 +305,7 @@ func TestManagerWithDarwinConfiguration(t *testing.T) {
 	d := mkDeployerMock(t)
 
 	// Test with Darwin configuration
-	e, _ := executor.NewGitNixFlakeDarwin("", false)
+	e, _ := executor.NewGitNixFlakeDarwin("", "", false)
 	bc := NewConfirmer(bk, Without, 0, "")
 	bc.Start()
 	dc := NewConfirmer(bk, Without, 0, "")
@@ -318,4 +319,50 @@ func TestManagerWithDarwinConfiguration(t *testing.T) {
 	state := m.toState()
 	assert.NotNil(t, state)
 	assert.Equal(t, "darwin-machine-id", m.machineId)
+}
+
+func TestDeployOCI(t *testing.T) {
+	r := utils.NewOCIRepositoryMock()
+	tmp := t.TempDir()
+	bk := broker.New()
+	bk.Start()
+	f := fetcher.NewOCIFetcher(r, bk)
+	f.Start(t.Context())
+
+	s, _ := store.New(bk, tmp+"/state.json", tmp+"/gcroots", 1, 1, 1)
+	eMock := NewExecutorMock("")
+	b := builder.New(s, eMock, bk, "repoPath", "", "", "my-machine", false, 2*time.Second, 2*time.Second, 0, 30*time.Second, "")
+	var deployFunc = func(context.Context, string, string, []string, io.WriteCloser, io.WriteCloser) (bool, string, error) {
+		return false, "profile-path", nil
+	}
+	d := deployer.New(s, deployFunc, nil, "", bk)
+	e, _ := executor.NewGitNixFlakeNixOS("", "", false)
+	bc := NewConfirmer(bk, Without, 0, "")
+	bc.Start()
+	dc := NewConfirmer(bk, Without, 0, "")
+	dc.Start()
+	operations := ConfigurationOperations{"ghcr": {OCIRefMain: "switch", OCIRefTesting: "test"}}
+	m := New(s, prometheus.New(), scheduler.New(), f, b, d, "", "", e, bc, dc, bk, operations)
+	go m.Run(t.Context())
+	assert.Equal(t, []string{"ghcr"}, m.Fetcher.RemoteNames())
+
+	f.TriggerFetch([]string{"ghcr"})
+	r.RsCh <- &protobuf.OCIRepositoryStatus{
+		SelectedDigest:     "sha256:testing",
+		SelectedTag:        "testing-my-machine",
+		SelectedRemoteName: "ghcr",
+		SelectedIsTesting:  wrapperspb.Bool(true),
+	}
+	eMock.evalOk <- true
+	eMock.buildOk <- true
+	assert.EventuallyWithT(t, func(c *assert.CollectT) {
+		dpl := m.deployer.State().Deployment
+		if assert.NotNil(c, dpl) {
+			assert.Equal(c, "profile-path", dpl.ProfilePath)
+			assert.Equal(c, "sha256:testing", dpl.Generation.Source.GetOci().GetSelectedDigest())
+			assert.Equal(c, "my-machine", dpl.Generation.Source.Hostname())
+			// The operation of the testing reference is used
+			assert.Equal(c, "test", dpl.Operation)
+		}
+	}, 5*time.Second, 100*time.Millisecond)
 }

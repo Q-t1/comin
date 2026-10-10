@@ -42,6 +42,34 @@ func longStatus(status *pb.State) {
 			)
 		}
 	}
+	if ociRepoStatus := status.Fetcher.GetOciRepositoryStatus(); ociRepoStatus != nil {
+		if ociRepoStatus.SelectedShouldBeSigned.GetValue() && ociRepoStatus.SelectedSigned.GetValue() {
+			fmt.Printf("    Artifact %s signed by %s\n", ociRepoStatus.SelectedDigest, ociRepoStatus.SelectedSignedBy)
+		}
+		if ociRepoStatus.ErrorMsg != "" {
+			fmt.Printf("    Error: %s\n", ociRepoStatus.ErrorMsg)
+		}
+		for _, r := range ociRepoStatus.Remotes {
+			fmt.Printf("    Remote %s %s fetched %s\n",
+				r.Name, r.Url, humanize.Time(r.FetchedAt.AsTime()),
+			)
+			if r.FetchErrorMsg != "" {
+				fmt.Printf("      Error: %s\n", r.FetchErrorMsg)
+			}
+			for _, ref := range []struct {
+				name string
+				ref  *pb.OCIReference
+			}{{"Main", r.Main}, {"Testing", r.Testing}} {
+				if ref.ref.GetSpec() == "" {
+					continue
+				}
+				fmt.Printf("      %s %s: %s %s\n", ref.name, ref.ref.Spec, ref.ref.Tag, ref.ref.Digest)
+				if ref.ref.ErrorMsg != "" {
+					fmt.Printf("        Error: %s\n", ref.ref.ErrorMsg)
+				}
+			}
+		}
+	}
 	fmt.Printf("  Builder\n")
 	if status.Builder.Generation != nil {
 		store.GenerationShow(status.Builder.Generation)

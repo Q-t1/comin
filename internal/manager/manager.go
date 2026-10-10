@@ -168,17 +168,24 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 					if !fetched.Updated {
 						continue
 					}
-					rs := fetched.GetGitRepositoryStatus()
+					var source *protobuf.Source
+					switch {
+					case fetched.GetGitRepositoryStatus() != nil:
+						source = store.NewGitSource(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), fetched.GetGitRepositoryStatus())
+					case fetched.GetOciRepositoryStatus() != nil:
+						source = store.NewOCISource(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), fetched.GetOciRepositoryStatus())
+					default:
+						continue
+					}
 					if fetched.Verified {
-						logrus.Infof("manager: a generation is evaluating for commit %s", rs.SelectedCommitId)
-						source := store.NewGitSource(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), rs)
+						logrus.Infof("manager: a generation is evaluating for %s", source.Id())
 						generation := m.storage.NewGeneration(source, m.Builder.GetBuildAttemptsLimit())
 						err := m.Builder.Eval(ctx, &generation)
 						if err != nil {
 							logrus.Error(err)
 						}
 					} else {
-						logrus.Infof("manager: the commit %s is not evaluated because it is not signed", rs.SelectedCommitId)
+						logrus.Infof("manager: %s is not evaluated because it is not signed", source.Id())
 					}
 				}
 			case generationUUID := <-m.Builder.EvaluationDone:
@@ -231,12 +238,27 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 // ConfigurationOperations is a map describing the operation associated
 // to each remote/branch. It is a map looking such as:
 // { origin: { main: switch, testing: test }, local { main: switch }
+// For OCI remotes, the keys are OCIRefMain and OCIRefTesting.
 type ConfigurationOperations map[string](map[string]string)
+
+const (
+	OCIRefMain    = "main"
+	OCIRefTesting = "testing"
+)
 
 // getOperation returns the operation associated to the remote and
 // reference a generation source has been selected from.
 func (m *Manager) getOperation(source *protobuf.Source) string {
-	return m.getOperationFromConfigurationOperations(source.RemoteName(), source.RefName())
+	ref := source.RefName()
+	// The operations of OCI remotes are associated to their main
+	// and testing references since the selected tag can change.
+	if source.GetOci() != nil {
+		ref = OCIRefMain
+		if source.IsTesting() {
+			ref = OCIRefTesting
+		}
+	}
+	return m.getOperationFromConfigurationOperations(source.RemoteName(), ref)
 }
 
 func (m *Manager) getOperationFromConfigurationOperations(remote, branch string) (operation string) {

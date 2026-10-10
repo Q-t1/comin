@@ -9,6 +9,7 @@ import (
 	"github.com/nlewo/comin/internal/utils"
 	"github.com/nlewo/comin/pkg/protobuf"
 	"github.com/stretchr/testify/assert"
+	"google.golang.org/protobuf/types/known/wrapperspb"
 )
 
 func TestFetcher(t *testing.T) {
@@ -77,4 +78,40 @@ func TestFetcher(t *testing.T) {
 func TestUnion(t *testing.T) {
 	res := union([]string{"r1", "r2"}, []string{"r1", "r3"})
 	assert.Equal(t, []string{"r1", "r2", "r3"}, res)
+}
+
+func TestOCIFetcher(t *testing.T) {
+	r := utils.NewOCIRepositoryMock()
+	bk := broker.New()
+	bk.Start()
+	f := NewOCIFetcher(r, bk)
+	f.Start(t.Context())
+	brokerEvents := bk.Subscribe()
+	assert.Equal(t, []string{"ghcr"}, f.RemoteNames())
+
+	expect := func(digest string, updated bool) {
+		assert.EventuallyWithT(t, func(c *assert.CollectT) {
+			e := <-brokerEvents
+			fetched := e.GetFetched()
+			assert.NotNil(c, fetched)
+			assert.Equal(c, updated, fetched.Updated)
+			assert.True(c, fetched.Verified)
+			assert.Equal(c, digest, fetched.GetOciRepositoryStatus().SelectedDigest)
+		}, 5*time.Second, 100*time.Millisecond, "fetcher failed to fetch")
+	}
+
+	f.TriggerFetch([]string{"ghcr"})
+	r.RsCh <- &protobuf.OCIRepositoryStatus{SelectedDigest: "sha256:1"}
+	expect("sha256:1", true)
+
+	f.TriggerFetch([]string{"ghcr"})
+	r.RsCh <- &protobuf.OCIRepositoryStatus{SelectedDigest: "sha256:1"}
+	expect("sha256:1", false)
+
+	// The same artifact selected from a testing tag is an update
+	f.TriggerFetch([]string{"ghcr"})
+	r.RsCh <- &protobuf.OCIRepositoryStatus{SelectedDigest: "sha256:1", SelectedIsTesting: wrapperspb.Bool(true)}
+	expect("sha256:1", true)
+
+	assert.NotNil(t, f.GetState().GetOciRepositoryStatus())
 }

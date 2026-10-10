@@ -48,6 +48,7 @@ func boolToString(v bool) string {
 type FetcherModel struct {
 	IsFetching          bool
 	GitRepositoryStatus *protobuf.GitRepositoryStatus
+	OCIRepositoryStatus *protobuf.OCIRepositoryStatus
 }
 
 func (fm FetcherModel) View() string {
@@ -61,6 +62,9 @@ func (fm FetcherModel) View() string {
 	}
 	b.WriteString(sectionStyle.Render("Fetcher") + "      " + status + "\n")
 
+	if fm.OCIRepositoryStatus != nil {
+		fm.ociView(&b)
+	}
 	if fm.GitRepositoryStatus == nil {
 		return b.String()
 	}
@@ -102,6 +106,45 @@ func (fm FetcherModel) View() string {
 		}
 	}
 	return b.String()
+}
+
+func shortDigest(digest string) string {
+	digest = strings.TrimPrefix(digest, "sha256:")
+	if len(digest) > 8 {
+		return digest[:8]
+	}
+	return digest
+}
+
+func (fm FetcherModel) ociView(b *strings.Builder) {
+	if fm.OCIRepositoryStatus.ErrorMsg != "" {
+		b.WriteString("  " + labelStyle.Render("Error:     ") + fm.OCIRepositoryStatus.ErrorMsg + "\n")
+	}
+	for _, r := range fm.OCIRepositoryStatus.Remotes {
+		fetchedAt := ""
+		if r.FetchedAt != nil {
+			fetchedAt = dimStyle.Render(" fetched " + formatTime(r.FetchedAt.AsTime()))
+		}
+		b.WriteString("  " + labelStyle.Render("Remote:    ") + r.Name + fetchedAt + "\n")
+		b.WriteString("    " + labelStyle.Render("URL:     ") + r.Url + "\n")
+		if r.FetchErrorMsg != "" {
+			b.WriteString("    " + labelStyle.Render("Error:   ") + r.FetchErrorMsg + "\n")
+		}
+		for _, ref := range []struct {
+			label string
+			ref   *protobuf.OCIReference
+		}{{"Main:    ", r.Main}, {"Testing: ", r.Testing}} {
+			if ref.ref.GetSpec() == "" {
+				b.WriteString("    " + labelStyle.Render(ref.label+"not defined in the configuration") + "\n")
+				continue
+			}
+			b.WriteString("    " + labelStyle.Render(ref.label) +
+				ref.ref.Spec + " " + ref.ref.Tag + "/" + shortDigest(ref.ref.Digest) + "  " + ref.ref.Revision + "\n")
+			if ref.ref.ErrorMsg != "" {
+				b.WriteString("      " + labelStyle.Render("Error: ") + ref.ref.ErrorMsg + "\n")
+			}
+		}
+	}
 }
 
 // BuilderModel holds the current builder state and renders it.
@@ -312,6 +355,7 @@ func UpdateManager(manager *ManagerModel, event *protobuf.Event) {
 		if state.Fetcher != nil {
 			manager.Fetcher.IsFetching = state.Fetcher.IsFetching.GetValue()
 			manager.Fetcher.GitRepositoryStatus = state.Fetcher.GetGitRepositoryStatus()
+			manager.Fetcher.OCIRepositoryStatus = state.Fetcher.GetOciRepositoryStatus()
 		}
 	case *protobuf.Event_EvalStartedType:
 		manager.Builder.IsEvaluating = true
@@ -334,6 +378,7 @@ func UpdateManager(manager *ManagerModel, event *protobuf.Event) {
 	case *protobuf.Event_Fetched_:
 		manager.Fetcher.IsFetching = false
 		manager.Fetcher.GitRepositoryStatus = e.Fetched.GetGitRepositoryStatus()
+		manager.Fetcher.OCIRepositoryStatus = e.Fetched.GetOciRepositoryStatus()
 	case *protobuf.Event_Suspend_:
 		manager.IsSuspended = true
 		manager.Builder.IsSuspended = true

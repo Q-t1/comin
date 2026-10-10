@@ -13,6 +13,7 @@ import (
 	"github.com/nlewo/comin/internal/fetcher"
 	"github.com/nlewo/comin/internal/http"
 	"github.com/nlewo/comin/internal/manager"
+	"github.com/nlewo/comin/internal/oci"
 	"github.com/nlewo/comin/internal/prometheus"
 	"github.com/nlewo/comin/internal/repository"
 	"github.com/nlewo/comin/internal/scheduler"
@@ -36,6 +37,7 @@ var runCmd = &cobra.Command{
 		}
 
 		gitConfig := config.MkGitConfig(cfg)
+		ociConfig := config.MkOCIConfig(cfg)
 
 		if err := os.MkdirAll(cfg.StateDir, os.ModePerm); err != nil {
 			logrus.Errorf("Failed to create the state dir %s: %s", cfg.StateDir, err)
@@ -53,7 +55,7 @@ var runCmd = &cobra.Command{
 		}
 
 		var executor executorPkg.Executor
-		executor, err = executorPkg.New(cfg.RepositoryType, gitConfig.Path, gitConfig.Submodules)
+		executor, err = executorPkg.New(cfg.RepositoryType, gitConfig.Path, ociConfig.Path, gitConfig.Submodules)
 		if err != nil {
 			logrus.Error(err)
 			os.Exit(1)
@@ -80,26 +82,49 @@ var runCmd = &cobra.Command{
 		}
 		metrics.SetBuildInfo(cmd.Version)
 
-		// We get the last mainCommitId to avoid useless
-		// redeployment as well as non fast forward checkouts
-		var mainCommitId string
 		var lastDeployment *protobuf.Deployment
 		if ok, ld := store.LastDeployment(); ok {
-			mainCommitId = ld.Generation.GetSource().GetGit().GetMainCommitId()
 			lastDeployment = ld
 			metrics.SetDeploymentInfo(ld.Generation.GetSource().Id(), ld.Status)
 		}
-		repository, err := repository.New(gitConfig, mainCommitId, metrics)
-		if err != nil {
-			logrus.Errorf("Failed to initialize the repository: %s", err)
-			os.Exit(1)
-		}
 
-		fetcher := fetcher.NewGitFetcher(repository, broker)
-		fetcher.Start(cmd.Context())
+		var f fetcher.Fetcher
+		if len(cfg.OCIRemotes) > 0 {
+			// We get the last main artifact to avoid useless
+			// redeployments as well as rollbacks to older artifacts
+			var main oci.MainArtifact
+			if ociSource := lastDeployment.GetGeneration().GetSource().GetOci(); ociSource != nil {
+				main = oci.MainArtifact{
+					Digest:     ociSource.MainDigest,
+					Tag:        ociSource.MainTag,
+					Created:    ociSource.MainCreated,
+					RemoteName: ociSource.MainRemoteName,
+				}
+			}
+			repository, err := oci.New(ociConfig, main)
+			if err != nil {
+				logrus.Errorf("Failed to initialize the OCI repository: %s", err)
+				os.Exit(1)
+			}
+			f = fetcher.NewOCIFetcher(repository, broker)
+		} else {
+			// We get the last mainCommitId to avoid useless
+			// redeployment as well as non fast forward checkouts
+			mainCommitId := lastDeployment.GetGeneration().GetSource().GetGit().GetMainCommitId()
+			repository, err := repository.New(gitConfig, mainCommitId, metrics)
+			if err != nil {
+				logrus.Errorf("Failed to initialize the repository: %s", err)
+				os.Exit(1)
+			}
+			f = fetcher.NewGitFetcher(repository, broker)
+		}
+		f.Start(cmd.Context())
 		sched := scheduler.New()
 		for _, remote := range cfg.Remotes {
-			sched.FetchRemote(fetcher, remote.Name, remote.Poller)
+			sched.FetchRemote(f, remote.Name, remote.Poller)
+		}
+		for _, remote := range cfg.OCIRemotes {
+			sched.FetchRemote(f, remote.Name, remote.Poller)
 		}
 
 		builder := builder.New(store, executor, broker, gitConfig.Path, gitConfig.Dir, cfg.SystemAttr, cfg.Hostname, gitConfig.Submodules, time.Duration(cfg.EvalTimeout)*time.Second, time.Duration(cfg.BuildTimeout)*time.Second, cfg.BuildAttemptsLimit, time.Duration(cfg.BuildRetryTimer)*time.Second, cfg.PostBuildCommand)
@@ -126,7 +151,13 @@ var runCmd = &cobra.Command{
 			configurationOperations[r.Name][r.Branches.Main.Name] = r.Branches.Main.Operation
 			configurationOperations[r.Name][r.Branches.Testing.Name] = r.Branches.Testing.Operation
 		}
-		manager := manager.New(store, metrics, sched, fetcher, builder, deployer, machineId, cfg.Hostname, executor, buildConfirmer, deployConfirmer, broker, configurationOperations)
+		for _, r := range cfg.OCIRemotes {
+			configurationOperations[r.Name] = map[string]string{
+				manager.OCIRefMain:    r.Ref.Main.Operation,
+				manager.OCIRefTesting: r.Ref.Testing.Operation,
+			}
+		}
+		manager := manager.New(store, metrics, sched, f, builder, deployer, machineId, cfg.Hostname, executor, buildConfirmer, deployConfirmer, broker, configurationOperations)
 
 		http.Serve(manager,
 			metrics,

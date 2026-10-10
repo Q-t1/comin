@@ -22,3 +22,21 @@ func (r *RepositoryMock) FetchAndUpdate(ctx context.Context, remoteNames []strin
 func (r *RepositoryMock) GetRepositoryStatus() *protobuf.GitRepositoryStatus {
 	return &protobuf.GitRepositoryStatus{}
 }
+
+type OCIRepositoryMock struct {
+	RsCh chan *protobuf.OCIRepositoryStatus
+}
+
+func NewOCIRepositoryMock() *OCIRepositoryMock {
+	return &OCIRepositoryMock{
+		RsCh: make(chan *protobuf.OCIRepositoryStatus, 5),
+	}
+}
+func (r *OCIRepositoryMock) FetchAndUpdate(ctx context.Context, remoteNames []string) chan *protobuf.OCIRepositoryStatus {
+	return r.RsCh
+}
+func (r *OCIRepositoryMock) GetRepositoryStatus() *protobuf.OCIRepositoryStatus {
+	return &protobuf.OCIRepositoryStatus{
+		Remotes: []*protobuf.OCIRemote{{Name: "ghcr"}},
+	}
+}

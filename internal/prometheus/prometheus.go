@@ -125,15 +125,20 @@ func Subscribe(broker *brokerPkg.Broker, metrics *Prometheus) {
 func updateFetched(fetched *protobuf.Event_Fetched, metrics *Prometheus) {
 	metrics.lastFetchFailed.Reset()
 	for _, repo := range fetched.GetGitRepositoryStatus().GetRemotes() {
-		status := "failed"
-		success := repo.GetFetched().GetValue()
-		if success {
-			status = "succeeded"
-		}
-
-		metrics.IncFetchCounter(repo.GetName(), status)
-		metrics.lastFetchFailed.With(prometheus.Labels{"remote_name": repo.GetName()}).Set(boolToFloat64(!success))
+		updateFetchedRemote(repo.GetName(), repo.GetFetched().GetValue(), metrics)
 	}
+	for _, repo := range fetched.GetOciRepositoryStatus().GetRemotes() {
+		updateFetchedRemote(repo.GetName(), repo.GetFetched().GetValue(), metrics)
+	}
+}
+
+func updateFetchedRemote(name string, success bool, metrics *Prometheus) {
+	status := "failed"
+	if success {
+		status = "succeeded"
+	}
+	metrics.IncFetchCounter(name, status)
+	metrics.lastFetchFailed.With(prometheus.Labels{"remote_name": name}).Set(boolToFloat64(!success))
 }
 
 func (m Prometheus) Handler() http.Handler {

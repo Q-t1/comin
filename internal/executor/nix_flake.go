@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/nlewo/comin/internal/oci"
 	"github.com/nlewo/comin/internal/utils"
 	"github.com/nlewo/comin/pkg/protobuf"
 )
@@ -15,6 +16,7 @@ import (
 type GitNixFlake struct {
 	systemAttr     string
 	repositoryPath string
+	ociPath        string
 	submodules     bool
 }
 
@@ -53,23 +55,39 @@ func (n *GitNixFlake) ShowDerivation(ctx context.Context, flakeUrl, hostname str
 	return showDerivationWithFlake(ctx, flakeUrl, hostname, n.systemAttr, os.Stdout, os.Stderr)
 }
 
+// flakeUrl returns the URL of the flake to evaluate and the hostname
+// of the configuration to evaluate.
+func (n *GitNixFlake) flakeUrl(source *protobuf.Source) (flakeUrl, hostname string, err error) {
+	switch {
+	case source.GetGit() != nil:
+		gitSource := source.GetGit()
+		flakeUrl = fmt.Sprintf("git+file://%s?dir=%s&rev=%s", n.repositoryPath, gitSource.RepositorySubdir, gitSource.SelectedCommitId)
+		if gitSource.SelectedBranchName != "" {
+			flakeUrl += "&ref=" + gitSource.SelectedBranchName
+		}
+		if n.submodules {
+			flakeUrl += "&submodules=1"
+		}
+		return flakeUrl, gitSource.Hostname, nil
+	case source.GetOci() != nil:
+		ociSource := source.GetOci()
+		artifactDir := oci.ArtifactDir(n.ociPath, ociSource.SelectedDigest)
+		flakeUrl = fmt.Sprintf("path:%s?dir=%s", artifactDir, ociSource.RepositorySubdir)
+		return flakeUrl, ociSource.Hostname, nil
+	}
+	return "", "", fmt.Errorf("expected a Git or OCI source, got %v", source)
+}
+
 func (n *GitNixFlake) Eval(ctx context.Context, source *protobuf.Source, stdout, stderr io.WriteCloser) (drvPath string, outPath string, machineId string, err error) {
-	gitSource := source.GetGit()
-	if gitSource == nil {
-		return "", "", "", fmt.Errorf("expected Git source, got nil")
-	}
-	flakeUrl := fmt.Sprintf("git+file://%s?dir=%s&rev=%s", n.repositoryPath, gitSource.RepositorySubdir, gitSource.SelectedCommitId)
-	if gitSource.SelectedBranchName != "" {
-		flakeUrl += "&ref=" + gitSource.SelectedBranchName
-	}
-	if n.submodules {
-		flakeUrl += "&submodules=1"
-	}
-	drvPath, outPath, err = showDerivationWithFlake(ctx, flakeUrl, gitSource.Hostname, n.systemAttr, stdout, stderr)
+	flakeUrl, hostname, err := n.flakeUrl(source)
 	if err != nil {
 		return
 	}
-	machineId, err = getExpectedMachineId(ctx, flakeUrl, gitSource.Hostname, n.systemAttr, stdout, stderr)
+	drvPath, outPath, err = showDerivationWithFlake(ctx, flakeUrl, hostname, n.systemAttr, stdout, stderr)
+	if err != nil {
+		return
+	}
+	machineId, err = getExpectedMachineId(ctx, flakeUrl, hostname, n.systemAttr, stdout, stderr)
 	return
 }
 

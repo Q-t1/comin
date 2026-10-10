@@ -9,6 +9,7 @@ import (
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/nlewo/comin/internal/oci"
 	"github.com/nlewo/comin/internal/utils"
 	"github.com/nlewo/comin/pkg/protobuf"
 	"github.com/sirupsen/logrus"
@@ -16,6 +17,7 @@ import (
 
 type GitNix struct {
 	repositoryPath string
+	ociPath        string
 	submodules     bool
 }
 
@@ -39,9 +41,15 @@ func (n *GitNix) NeedToReboot(outPath, operation string) bool {
 }
 
 func (n *GitNix) Eval(ctx context.Context, source *protobuf.Source, stdout, stderr io.WriteCloser) (drvPath string, outPath string, machineId string, err error) {
+	if ociSource := source.GetOci(); ociSource != nil {
+		// The artifact is extracted in a directory which is only
+		// read by the evaluation.
+		nixDir := path.Join(oci.ArtifactDir(n.ociPath, ociSource.SelectedDigest), ociSource.RepositorySubdir)
+		return showDerivationWithNix(ctx, nixDir, ociSource.SystemAttr, stdout, stderr)
+	}
 	gitSource := source.GetGit()
 	if gitSource == nil {
-		return "", "", "", fmt.Errorf("expected Git source, got nil")
+		return "", "", "", fmt.Errorf("expected a Git or OCI source, got %v", source)
 	}
 	tempDir, err := cloneRepoToTemp(n.repositoryPath, gitSource.SelectedCommitId, n.submodules)
 	defer os.RemoveAll(tempDir) // nolint: errcheck

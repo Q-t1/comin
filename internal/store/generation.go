@@ -142,6 +142,38 @@ func NewGitSource(hostname, repositoryDir, systemAttr string, rs *protobuf.GitRe
 	}
 }
 
+// NewOCISource creates the Source of a generation from an OCI repository status.
+func NewOCISource(hostname, repositoryDir, systemAttr string, rs *protobuf.OCIRepositoryStatus) *protobuf.Source {
+	selectedRemoteUrl := ""
+	for _, remote := range rs.Remotes {
+		if remote.Name == rs.SelectedRemoteName {
+			selectedRemoteUrl = remote.Url
+			break
+		}
+	}
+	return &protobuf.Source{
+		Source: &protobuf.Source_Oci{
+			Oci: &protobuf.OCI{
+				RepositorySubdir:   repositoryDir,
+				SystemAttr:         systemAttr,
+				Hostname:           hostname,
+				SelectedRemoteUrl:  selectedRemoteUrl,
+				SelectedRemoteName: rs.SelectedRemoteName,
+				SelectedTag:        rs.SelectedTag,
+				SelectedDigest:     rs.SelectedDigest,
+				SelectedIsTesting:  rs.SelectedIsTesting,
+				SelectedRevision:   rs.SelectedRevision,
+				SelectedSourceUrl:  rs.SelectedSourceUrl,
+				SelectedCreated:    rs.SelectedCreated,
+				MainDigest:         rs.MainDigest,
+				MainTag:            rs.MainTag,
+				MainCreated:        rs.MainCreated,
+				MainRemoteName:     rs.MainRemoteName,
+			},
+		},
+	}
+}
+
 func (s *Store) NewGeneration(source *protobuf.Source, buildAttemptsLimit int) (g protobuf.Generation) {
 	g = protobuf.Generation{
 		Uuid:               uuid.New().String(),
@@ -162,6 +194,12 @@ func GenerationShow(g *protobuf.Generation) {
 		git := g.Source.GetGit()
 		fmt.Printf("%sCommit ID %s from %s/%s\n", padding, git.SelectedCommitId, git.SelectedRemoteName, git.SelectedBranchName)
 		fmt.Printf("%sCommit message: %s\n", padding, strings.Trim(git.SelectedCommitMsg, "\n"))
+	}
+	if ociSource := g.GetSource().GetOci(); ociSource != nil {
+		fmt.Printf("%sArtifact %s from %s/%s\n", padding, ociSource.SelectedDigest, ociSource.SelectedRemoteName, g.Source.RefName())
+		if ociSource.SelectedRevision != "" {
+			fmt.Printf("%sRevision: %s\n", padding, ociSource.SelectedRevision)
+		}
 	}
 
 	if g.EvalStatus == EvalInit.String() {
