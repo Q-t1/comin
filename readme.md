@@ -15,6 +15,7 @@ NixOS configuration associated to the machine.
 - :satellite: Observable via [Prometheus metrics](./docs/generated-module-options.md#servicescominexporter)
 - :pushpin: Create and delete system profiles
 - :lock: Optionally check GPG and SSH [Git commit signatures](./docs/howtos.md#check-git-commit-signatures)
+- :package: Pull configurations from [OCI artifacts](./docs/howtos.md#how-to-deploy-configurations-from-oci-artifacts) instead of Git, optionally signed with cosign
 - [All others features](./docs/features.md)
 
 ## Quick start

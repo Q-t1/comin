@@ -84,6 +84,109 @@ comin supports public key entries and the optional `namespaces=` restriction;
 other allowed signers options are rejected.
 
 
+## How to deploy configurations from OCI artifacts
+
+Instead of polling Git repositories, comin can poll OCI repositories
+(such as the GitHub Container Registry) containing the configuration
+as an OCI artifact. This is similar to the Flux `OCIRepository` and is
+useful to
+
+- avoid distributing Git credentials to machines,
+- only deploy configurations published by a CI pipeline,
+- pull configurations from registry mirrors.
+
+### Publish the configuration
+
+The configuration is a tarball stored in an artifact layer. It can be
+pushed with the [Flux CLI](https://fluxcd.io/flux/cmd/flux_push_artifact/):
+
+```shell
+flux push artifact oci://ghcr.io/owner/infra:$(git rev-parse --short HEAD) \
+  --path=. \
+  --source="$(git config --get remote.origin.url)" \
+  --revision="$(git branch --show-current)@sha1:$(git rev-parse HEAD)"
+flux tag artifact oci://ghcr.io/owner/infra:$(git rev-parse --short HEAD) --tag latest
+```
+
+or with [ORAS](https://oras.land):
+
+```shell
+revision="$(git branch --show-current)@sha1:$(git rev-parse HEAD)"
+tar czf /tmp/infra.tar.gz --exclude=.git .
+cd /tmp
+oras push ghcr.io/owner/infra:latest \
+  --annotation "org.opencontainers.image.created=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --annotation "org.opencontainers.image.revision=$revision" \
+  infra.tar.gz:application/vnd.oci.image.layer.v1.tar+gzip
+```
+
+The `org.opencontainers.image.created` annotation is used by comin to
+refuse artifacts older than the deployed one, and the
+`org.opencontainers.image.revision` annotation is shown by comin and
+exposed to the post build and deployment commands.
+
+### Configure comin
+
+```nix
+services.comin = {
+  enable = true;
+  ociRemotes = [{
+    name = "ghcr";
+    url = "oci://ghcr.io/owner/infra";
+    # Optional for public repositories
+    auth.password_path = "/run/secrets/ghcr-token";
+  }];
+};
+```
+
+By default, the `latest` tag is deployed and the
+`testing-<hostname>` tag is tested (see [how to test a NixOS
+configuration change](#how-to-test-a-nixos-configuration-change)). The
+references are configured with `ref.main` and `ref.testing`, which can
+be a tag, a semver constraint or a digest:
+
+```nix
+ref.main.semver = ">=1.0.0";
+ref.testing.tag = "testing-machine";
+```
+
+Since artifacts have no history, comin refuses to roll back to
+artifacts older than the deployed main artifact: a semver reference
+never selects a version lower than the deployed one, and other
+references never select an artifact created before the deployed one.
+An artifact pinned by digest is always accepted.
+
+The artifact is extracted into `/var/lib/comin/oci/<digest>`. Flakes
+are evaluated from a `path:` flake URL: `self.rev` is then not
+available, but the revision can still be read from the
+`COMIN_GIT_SHA` variable of the post build and deployment commands.
+
+### Verify cosign signatures
+
+When `services.comin.cosignPublicKeyPaths` is set, an artifact is only
+deployed if it is signed by one of these keys with
+[cosign](https://docs.sigstore.dev/cosign/signing/signing_with_containers/):
+
+```shell
+cosign generate-key-pair
+cosign sign --key cosign.key ghcr.io/owner/infra@sha256:...
+```
+
+```nix
+services.comin.cosignPublicKeyPaths = [ ./cosign.pub ];
+```
+
+The Sigstore bundle format of cosign >= v3 and the legacy format of
+cosign < v3 are both supported. Since the public keys are the trust
+anchor, transparency log entries are not verified, which is equivalent
+to `cosign verify --key cosign.pub --insecure-ignore-tlog`. Signatures
+have to be stored in the artifact repository and keyless signatures
+are not supported.
+
+An artifact is verified before being extracted. If its signature is
+not found, comin tries again on the next poll, so it doesn't matter if
+the artifact is signed after being pushed.
+
 ## How to deploy a nix-darwin configuration
 
 When comin is running on a Darwin system, it automatically builds and

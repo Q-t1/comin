@@ -33,3 +33,33 @@ services.comin = {
   ];
 };
 ```
+
+## Authentication for private OCI registries
+
+The registry credentials of an OCI remote are either a password (or
+token) stored in a file, provided with the attribute
+`comin.ociRemotes.*.auth.password_path`, or a Docker `config.json`
+file provided with the attribute
+`comin.ociRemotes.*.auth.docker_config_path`. Credential helpers
+configured in this Docker config file are used if their binaries are
+available to the comin service.
+
+On the GitHub Container Registry, the token is a personal access
+token with the `read:packages` scope. On the GitLab Container
+Registry, it is a deploy token or a personal access token with the
+`read_registry` scope.
+
+#### Example
+
+```nix
+services.comin = {
+  enable = true;
+  ociRemotes = [
+    {
+      name = "ghcr";
+      url = "oci://ghcr.io/your/private-infra";
+      auth.password_path = "/filepath/to/your/access/token";
+    }
+  ];
+};
+```

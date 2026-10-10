@@ -6,6 +6,62 @@
 }:
 let
   cfg = config.services.comin;
+  # The options of an OCI reference. When none of tag, semver and
+  # digest is set, the tag defaultTag is used.
+  ociRefSubmodule =
+    {
+      name,
+      defaultTag,
+      defaultTagText,
+      defaultOperation,
+    }:
+    lib.types.submodule (
+      { config, ... }:
+      {
+        options = {
+          tag = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = if config.semver == null && config.digest == null then defaultTag else null;
+            defaultText = lib.literalMD "`${defaultTagText}` when `semver` and `digest` are not set";
+            description = "The tag of the ${name} artifact.";
+          };
+          semver = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            example = ">=1.0.0";
+            description = ''
+              A semver constraint. The highest tag matching this
+              constraint is selected. Artifacts with a version lower
+              than the deployed one are refused.
+            '';
+          };
+          semver_filter = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            example = ".*-rc.*";
+            description = ''
+              A regular expression tags have to match to be considered
+              by the semver constraint.
+            '';
+          };
+          digest = lib.mkOption {
+            type = lib.types.nullOr lib.types.str;
+            default = null;
+            example = "sha256:3b6cdcc7adcc9a84d3214ee1c029543789d90b5ae69debe9efa3f66e982875de";
+            description = "The digest the ${name} artifact is pinned to.";
+          };
+          operation = lib.mkOption {
+            type = lib.types.enum [
+              "switch"
+              "test"
+              "boot"
+            ];
+            default = defaultOperation;
+            description = "The switch-to-configuration operation to do on the ${name} artifact.";
+          };
+        };
+      }
+    );
 in
 {
   imports = [
@@ -27,7 +83,38 @@ in
           assertion = cfg.repositoryType == "flake" || cfg.repositoryType == "nix" && cfg.systemAttr != null;
           message = "When the `services.comin.repositoryType` is `nix`, the the configuration attribute `services.comin.systemAttr` must be set.";
         }
-      ];
+        {
+          assertion = cfg.remotes != [ ] || cfg.ociRemotes != [ ];
+          message = "One of `services.comin.remotes` or `services.comin.ociRemotes` must be set.";
+        }
+        {
+          assertion = cfg.remotes == [ ] || cfg.ociRemotes == [ ];
+          message = "`services.comin.remotes` and `services.comin.ociRemotes` cannot be both set.";
+        }
+      ]
+      ++ lib.concatMap (
+        remote:
+        map
+          (
+            refName:
+            let
+              ref = remote.ref.${refName};
+            in
+            {
+              assertion =
+                lib.count (x: x != null) [
+                  ref.tag
+                  ref.semver
+                  ref.digest
+                ] <= 1;
+              message = "comin: the ${refName} reference of the OCI remote `${remote.name}` must set only one of `tag`, `semver` and `digest`.";
+            }
+          )
+          [
+            "main"
+            "testing"
+          ]
+      ) cfg.ociRemotes;
     })
   ];
   options =
@@ -153,6 +240,7 @@ in
         };
         remotes = mkOption {
           description = "Ordered list of repositories to pull.";
+          default = [ ];
           type = listOf (submodule {
             options = {
               name = mkOption {
@@ -286,6 +374,134 @@ in
             };
           });
         };
+        ociRemotes = mkOption {
+          description = ''
+            Ordered list of OCI repositories to pull the configuration
+            from, as an alternative to Git `remotes`. The configuration
+            is an OCI artifact, such as pushed by `flux push artifact`
+            or `oras push`. Several repositories can be used to pull
+            from registry mirrors.
+          '';
+          default = [ ];
+          example = lib.literalExpression ''
+            [{
+              name = "ghcr";
+              url = "oci://ghcr.io/owner/infra";
+              ref.main.semver = ">=1.0.0";
+              auth.password_path = "/run/secrets/ghcr-token";
+            }]
+          '';
+          type = listOf (submodule {
+            options = {
+              name = mkOption {
+                type = str;
+                description = "The name of the remote.";
+              };
+              url = mkOption {
+                type = strMatching "oci://.+";
+                example = "oci://ghcr.io/owner/infra";
+                description = "The URL of the OCI repository.";
+              };
+              auth = mkOption {
+                description = "Authentication options. The registry is accessed anonymously by default.";
+                default = { };
+                type = submodule {
+                  options = {
+                    username = mkOption {
+                      type = str;
+                      default = "comin";
+                      description = ''
+                        The username used with the password. Note that any
+                        non empty username is valid on GitHub and GitLab
+                        registries.
+                      '';
+                    };
+                    password_path = mkOption {
+                      type = nullOr str;
+                      default = null;
+                      description = "The path of a file containing the registry password or token.";
+                    };
+                    docker_config_path = mkOption {
+                      type = nullOr str;
+                      default = null;
+                      description = ''
+                        The path of a Docker `config.json` file
+                        containing the registry credentials, which can
+                        be used instead of `password_path`.
+                      '';
+                    };
+                  };
+                };
+              };
+              ref = mkOption {
+                description = "The references of the artifacts to pull.";
+                default = { };
+                type = submodule {
+                  options = {
+                    main = mkOption {
+                      default = { };
+                      description = "The reference of the main artifact.";
+                      type = ociRefSubmodule {
+                        name = "main";
+                        defaultTag = "latest";
+                        defaultTagText = "latest";
+                        defaultOperation = "switch";
+                      };
+                    };
+                    testing = mkOption {
+                      default = { };
+                      description = ''
+                        The reference of the testing artifact. A
+                        testing artifact is preferred when it is newer
+                        than the main artifact.
+                      '';
+                      type = ociRefSubmodule {
+                        name = "testing";
+                        defaultTag = "testing-${config.services.comin.hostname}";
+                        defaultTagText = "testing-\${config.services.comin.hostname}";
+                        defaultOperation = "test";
+                      };
+                    };
+                  };
+                };
+              };
+              layer_media_type = mkOption {
+                type = nullOr str;
+                default = null;
+                example = "application/vnd.cncf.flux.content.v1.tar+gzip";
+                description = ''
+                  The media type of the artifact layer containing the
+                  configuration. When null, the first layer with a
+                  tar or compressed tar media type is used.
+                '';
+              };
+              insecure = mkOption {
+                type = bool;
+                default = false;
+                description = "Whether to use HTTP instead of HTTPS to access the registry.";
+              };
+              timeout = mkOption {
+                type = int;
+                default = 300;
+                description = "The fetch timeout in seconds.";
+              };
+              poller = mkOption {
+                default = { };
+                description = "The poller options.";
+                type = submodule {
+                  options = {
+                    period = mkOption {
+                      type = types.int;
+                      default = 60;
+                      description = "The poller period in seconds.";
+                    };
+                  };
+                };
+              };
+            };
+          });
+        };
+
         debug = mkOption {
           type = types.bool;
           default = false;
@@ -318,6 +534,16 @@ in
           type = nullOr str;
           default = null;
         };
+        cosignPublicKeyPaths = mkOption {
+          description = ''
+            A list of cosign public key file paths. When set, an OCI
+            artifact is only deployed if it is signed by one of these
+            keys. Both the Sigstore bundle format (cosign >= v3) and the
+            legacy format are supported.
+          '';
+          type = listOf str;
+          default = [ ];
+        };
         postDeploymentCommand = mkOption {
           description = ''
             A path to a script executed after each
@@ -326,7 +552,11 @@ in
             `COMIN_GIT_SHA`, `COMIN_GIT_REF`, `COMIN_GIT_MSG`,
             `COMIN_HOSTNAME`, `COMIN_GENERATION`, `COMIN_STATUS`
             (one of `init`, `running`, `done` or `failed`) and
-            `COMIN_ERROR_MSG`.
+            `COMIN_ERROR_MSG`. When the configuration comes from an OCI
+            artifact, `COMIN_GIT_SHA` and `COMIN_GIT_REF` are read from
+            its `org.opencontainers.image.revision` annotation and the
+            `COMIN_OCI_REMOTE`, `COMIN_OCI_TAG` and `COMIN_OCI_DIGEST`
+            variables are also provided.
           '';
           type = nullOr path;
           default = null;

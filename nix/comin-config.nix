@@ -17,11 +17,13 @@ rec {
     submodules = cfg.services.comin.submodules;
     system_attr = cfg.services.comin.systemAttr;
     remotes = cfg.services.comin.remotes;
+    oci_remotes = cfg.services.comin.ociRemotes;
     exporter = {
       listen_address = cfg.services.comin.exporter.listen_address;
       port = cfg.services.comin.exporter.port;
     };
     gpg_public_key_paths = cfg.services.comin.gpgPublicKeyPaths;
+    cosign_public_key_paths = cfg.services.comin.cosignPublicKeyPaths;
     build_confirmer = cfg.services.comin.buildConfirmer;
     deploy_confirmer = cfg.services.comin.deployConfirmer;
     retention = cfg.services.comin.retention;

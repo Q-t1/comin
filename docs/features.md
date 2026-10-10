@@ -23,6 +23,7 @@
 - [x] User confirmations for build and deployments
 - [x] Git submodules
 - [x] Generation retention policies
+- [x] Pull configurations from [OCI artifacts](./docs/howtos.md#how-to-deploy-configurations-from-oci-artifacts) with cosign signature verification
 - [x] Stream logs
 - [ ] Desktop tray: https://github.com/nlewo/comin/pull/151
 - [ ] Home manager support: https://github.com/nlewo/comin/issues/11

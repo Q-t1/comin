@@ -42,6 +42,34 @@ func longStatus(status *pb.State) {
 			)
 		}
 	}
+	if ociRepoStatus := status.Fetcher.GetOciRepositoryStatus(); ociRepoStatus != nil {
+		if ociRepoStatus.SelectedShouldBeSigned.GetValue() && ociRepoStatus.SelectedSigned.GetValue() {
+			fmt.Printf("    Artifact %s signed by %s\n", ociRepoStatus.SelectedDigest, ociRepoStatus.SelectedSignedBy)
+		}
+		if ociRepoStatus.ErrorMsg != "" {
+			fmt.Printf("    Error: %s\n", ociRepoStatus.ErrorMsg)
+		}
+		for _, r := range ociRepoStatus.Remotes {
+			fmt.Printf("    Remote %s %s fetched %s\n",
+				r.Name, r.Url, humanize.Time(r.FetchedAt.AsTime()),
+			)
+			if r.FetchErrorMsg != "" {
+				fmt.Printf("      Error: %s\n", r.FetchErrorMsg)
+			}
+			for _, ref := range []struct {
+				name string
+				ref  *pb.OCIReference
+			}{{"Main", r.Main}, {"Testing", r.Testing}} {
+				if ref.ref.GetSpec() == "" {
+					continue
+				}
+				fmt.Printf("      %s %s: %s %s\n", ref.name, ref.ref.Spec, ref.ref.Tag, ref.ref.Digest)
+				if ref.ref.ErrorMsg != "" {
+					fmt.Printf("        Error: %s\n", ref.ref.ErrorMsg)
+				}
+			}
+		}
+	}
 	fmt.Printf("  Builder\n")
 	if status.Builder.Generation != nil {
 		store.GenerationShow(status.Builder.Generation)
@@ -79,32 +107,32 @@ func onelineStatus(status *pb.State) {
 		fmt.Printf(" ⏸️ ")
 	}
 	if status.Builder.Generation != nil && status.Builder.IsEvaluating.GetValue() {
-		git := getGitFromGeneration(status.Builder.Generation)
-		fmt.Printf(" eval   %s/%s (%s)", git.SelectedRemoteName, git.SelectedBranchName,
+		src := status.Builder.Generation.GetSource()
+		fmt.Printf(" eval   %s/%s (%s)", src.RemoteName(), src.RefName(),
 			humanize.Time(status.Builder.Generation.EvalStartedAt.AsTime()))
 	} else if status.Builder.Generation != nil && status.Builder.IsBuilding.GetValue() {
-		git := getGitFromGeneration(status.Builder.Generation)
-		fmt.Printf(" build  %s/%s (%s)", git.SelectedRemoteName, git.SelectedBranchName,
+		src := status.Builder.Generation.GetSource()
+		fmt.Printf(" build  %s/%s (%s)", src.RemoteName(), src.RefName(),
 			humanize.Time(status.Builder.Generation.BuildStartedAt.AsTime()))
 	} else if status.Builder.Generation != nil && status.Builder.Generation.EvalStatus == store.EvalFailed.String() {
-		git := getGitFromGeneration(status.Builder.Generation)
-		fmt.Printf(" %s/%s (%s)", git.SelectedRemoteName, git.SelectedBranchName,
+		src := status.Builder.Generation.GetSource()
+		fmt.Printf(" %s/%s (%s)", src.RemoteName(), src.RefName(),
 			humanize.Time(status.Builder.Generation.EvalEndedAt.AsTime()))
 	} else if status.Builder.Generation != nil && status.Builder.Generation.BuildStatus == store.BuildFailed.String() {
-		git := getGitFromGeneration(status.Builder.Generation)
-		fmt.Printf(" %s/%s (%s)", git.SelectedRemoteName, git.SelectedBranchName,
+		src := status.Builder.Generation.GetSource()
+		fmt.Printf(" %s/%s (%s)", src.RemoteName(), src.RefName(),
 			humanize.Time(status.Builder.Generation.BuildEndedAt.AsTime()))
 	} else if status.Deployer.Deployment != nil {
-		git := getGitFromGeneration(status.Deployer.Deployment.Generation)
+		src := status.Deployer.Deployment.Generation.GetSource()
 		switch status.Deployer.Deployment.Status {
 		case store.StatusToString(store.Running):
-			fmt.Printf(" deploy %s/%s (%s)", git.SelectedRemoteName, git.SelectedBranchName,
+			fmt.Printf(" deploy %s/%s (%s)", src.RemoteName(), src.RefName(),
 				humanize.Time(status.Deployer.Deployment.EndedAt.AsTime()))
 		case store.StatusToString(store.Failed):
-			fmt.Printf(" %s/%s (%s)", git.SelectedRemoteName, git.SelectedBranchName,
+			fmt.Printf(" %s/%s (%s)", src.RemoteName(), src.RefName(),
 				humanize.Time(status.Deployer.Deployment.EndedAt.AsTime()))
 		case store.StatusToString(store.Done):
-			fmt.Printf(" %s/%s (%s)", git.SelectedRemoteName, git.SelectedBranchName,
+			fmt.Printf(" %s/%s (%s)", src.RemoteName(), src.RefName(),
 				humanize.Time(status.Deployer.Deployment.EndedAt.AsTime()))
 		}
 	}

@@ -45,8 +45,11 @@ func TestDeployerBasic(t *testing.T) {
 
 	deployDone <- struct{}{}
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.False(c, d.IsDeploying())
-		assert.Equal(c, "profile-path", d.Deployment().ProfilePath)
+		// The deployment is only read once the deployer is done
+		// with it: IsDeploying synchronizes with its update.
+		if assert.False(c, d.IsDeploying()) {
+			assert.Equal(c, "profile-path", d.Deployment().ProfilePath)
+		}
 	}, 5*time.Second, 100*time.Millisecond)
 
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -84,7 +87,7 @@ func TestDeployerSubmit(t *testing.T) {
 	}, "test", false, "")
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
 		assert.True(c, d.IsDeploying())
-		assert.Nil(c, d.GenerationToDeploy)
+		assert.Nil(c, d.State().GenerationToDeploy)
 	}, 5*time.Second, 100*time.Millisecond)
 
 	d.Submit(&protobuf.Generation{
@@ -105,15 +108,16 @@ func TestDeployerSubmit(t *testing.T) {
 			},
 		},
 	}, "test", false, "")
-	assert.NotNil(t, d.GenerationToDeploy)
+	assert.NotNil(t, d.State().GenerationToDeploy)
 
 	// To simulate the end of 2 deployments (commit-1 and commit-3)
 	deployDone <- struct{}{}
 	deployDone <- struct{}{}
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.False(c, d.IsDeploying())
-		assert.Equal(c, "profile-path", d.Deployment().ProfilePath)
-		assert.Nil(t, d.GenerationToDeploy)
+		if assert.False(c, d.IsDeploying()) {
+			assert.Equal(c, "profile-path", d.Deployment().ProfilePath)
+		}
+		assert.Nil(c, d.State().GenerationToDeploy)
 	}, 5*time.Second, 100*time.Millisecond)
 
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -154,12 +158,12 @@ func TestDeployerSuspend(t *testing.T) {
 		},
 	}, "test", false, "")
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.True(t, d.RunnerIsSuspended())
+		assert.True(c, d.RunnerIsSuspended())
 	}, 3*time.Second, 100*time.Millisecond)
 
 	d.Resume()
 	assert.EventuallyWithT(t, func(c *assert.CollectT) {
-		assert.False(t, d.RunnerIsSuspended())
-		assert.True(t, d.IsDeploying())
+		assert.False(c, d.RunnerIsSuspended())
+		assert.True(c, d.IsDeploying())
 	}, 3*time.Second, 100*time.Millisecond)
 }

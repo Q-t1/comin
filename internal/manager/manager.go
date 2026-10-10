@@ -42,7 +42,7 @@ type Manager struct {
 	prometheus      prometheus.Prometheus
 	storage         *store.Store
 	scheduler       scheduler.Scheduler
-	Fetcher         *fetcher.GitFetcher
+	Fetcher         fetcher.Fetcher
 	Builder         *builder.Builder
 	deployer        *deployer.Deployer
 	executor        executor.Executor
@@ -60,7 +60,7 @@ type Manager struct {
 func New(s *store.Store,
 	p prometheus.Prometheus,
 	sched scheduler.Scheduler,
-	fetcher *fetcher.GitFetcher,
+	fetcher fetcher.Fetcher,
 	builder *builder.Builder,
 	deployer *deployer.Deployer,
 	machineId string,
@@ -119,7 +119,7 @@ func (m *Manager) DeploymentLatestSubmit(operation string) error {
 	}
 	// If no operation is provided, use default based on branch type
 	if operation == "" {
-		if latest.Generation.Source != nil && latest.Generation.Source.GetGit() != nil && latest.Generation.Source.GetGit().SelectedBranchIsTesting != nil && latest.Generation.Source.GetGit().SelectedBranchIsTesting.Value {
+		if latest.Generation.GetSource().IsTesting() {
 			operation = "test"
 		} else {
 			operation = "switch"
@@ -168,16 +168,24 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 					if !fetched.Updated {
 						continue
 					}
-					rs := fetched.GetGitRepositoryStatus()
+					var source *protobuf.Source
+					switch {
+					case fetched.GetGitRepositoryStatus() != nil:
+						source = store.NewGitSource(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), fetched.GetGitRepositoryStatus())
+					case fetched.GetOciRepositoryStatus() != nil:
+						source = store.NewOCISource(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), fetched.GetOciRepositoryStatus())
+					default:
+						continue
+					}
 					if fetched.Verified {
-						logrus.Infof("manager: a generation is evaluating for commit %s", rs.SelectedCommitId)
-						generation := m.storage.NewGeneration(m.Builder.GetHostname(), m.Builder.GetRepositoryDir(), m.Builder.GetSystemAttr(), rs, m.Builder.GetBuildAttemptsLimit())
+						logrus.Infof("manager: a generation is evaluating for %s", source.Id())
+						generation := m.storage.NewGeneration(source, m.Builder.GetBuildAttemptsLimit())
 						err := m.Builder.Eval(ctx, &generation)
 						if err != nil {
 							logrus.Error(err)
 						}
 					} else {
-						logrus.Infof("manager: the commit %s is not evaluated because it is not signed", rs.SelectedCommitId)
+						logrus.Infof("manager: %s is not evaluated because it is not signed", source.Id())
 					}
 				}
 			case generationUUID := <-m.Builder.EvaluationDone:
@@ -205,9 +213,8 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 					continue
 				}
 				if generation.BuildErr == "" {
-					git := generation.Source.GetGit()
-					logrus.Infof("manager: a generation is available for deployment with commit %s", git.SelectedCommitId)
-					operation := m.getOperationFromConfigurationOperations(git.SelectedRemoteName, git.SelectedBranchName)
+					logrus.Infof("manager: a generation is available for deployment with commit %s", generation.Source.Id())
+					operation := m.getOperation(generation.Source)
 					if !m.deployer.IsAlreadyDeployed(&generation, operation) {
 						m.DeployConfirmer.Submit(generationUUID)
 					}
@@ -220,8 +227,7 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 					logrus.Error(err)
 					continue
 				}
-				git := generation.Source.GetGit()
-				operation := m.getOperationFromConfigurationOperations(git.SelectedRemoteName, git.SelectedBranchName)
+				operation := m.getOperation(generation.Source)
 				reason := fmt.Sprintf("The generation %s needs to be deployed", generationUUID)
 				m.deployer.Submit(&generation, operation, false, reason)
 			}
@@ -232,7 +238,28 @@ func (m *Manager) FetchAndBuild(ctx context.Context) {
 // ConfigurationOperations is a map describing the operation associated
 // to each remote/branch. It is a map looking such as:
 // { origin: { main: switch, testing: test }, local { main: switch }
+// For OCI remotes, the keys are OCIRefMain and OCIRefTesting.
 type ConfigurationOperations map[string](map[string]string)
+
+const (
+	OCIRefMain    = "main"
+	OCIRefTesting = "testing"
+)
+
+// getOperation returns the operation associated to the remote and
+// reference a generation source has been selected from.
+func (m *Manager) getOperation(source *protobuf.Source) string {
+	ref := source.RefName()
+	// The operations of OCI remotes are associated to their main
+	// and testing references since the selected tag can change.
+	if source.GetOci() != nil {
+		ref = OCIRefMain
+		if source.IsTesting() {
+			ref = OCIRefTesting
+		}
+	}
+	return m.getOperationFromConfigurationOperations(source.RemoteName(), ref)
+}
 
 func (m *Manager) getOperationFromConfigurationOperations(remote, branch string) (operation string) {
 	operation = "test"

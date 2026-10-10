@@ -102,6 +102,12 @@ func showDeployment(padding string, d *protobuf.Deployment) {
 		fmt.Printf("%sCommit ID %s from %s/%s\n", padding, git.SelectedCommitId, git.SelectedRemoteName, git.SelectedBranchName)
 		fmt.Printf("%sCommit message %s\n", padding, strings.Trim(git.SelectedCommitMsg, "\n"))
 	}
+	if ociSource := d.Generation.GetSource().GetOci(); ociSource != nil {
+		fmt.Printf("%sArtifact %s from %s/%s\n", padding, ociSource.SelectedDigest, ociSource.SelectedRemoteName, d.Generation.Source.RefName())
+		if ociSource.SelectedRevision != "" {
+			fmt.Printf("%sRevision %s\n", padding, ociSource.SelectedRevision)
+		}
+	}
 	fmt.Printf("%sOutpath %s\n", padding, d.Generation.OutPath)
 }
 

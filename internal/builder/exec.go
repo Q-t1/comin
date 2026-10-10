@@ -54,10 +54,10 @@ func (e *Exec) Start(ctx context.Context) {
 		}
 		e.started.Store(false)
 		e.finished.Store(true)
-		select {
-		case e.done <- struct{}{}:
-		default:
-		}
+		// Closing the channel, instead of sending on it, ensures
+		// Wait returns even if it starts waiting after the end of
+		// the execution.
+		close(e.done)
 	}()
 }
 

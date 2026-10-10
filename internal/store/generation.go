@@ -112,7 +112,8 @@ func StringToBuildStatus(statusStr string) BuildStatus {
 	}
 }
 
-func (s *Store) NewGeneration(hostname, repositoryDir, systemAttr string, rs *protobuf.GitRepositoryStatus, buildAttemptsLimit int) (g protobuf.Generation) {
+// NewGitSource creates the Source of a generation from a Git repository status.
+func NewGitSource(hostname, repositoryDir, systemAttr string, rs *protobuf.GitRepositoryStatus) *protobuf.Source {
 	// Find the selected remote URL
 	selectedRemoteUrl := ""
 	for _, remote := range rs.Remotes {
@@ -121,30 +122,67 @@ func (s *Store) NewGeneration(hostname, repositoryDir, systemAttr string, rs *pr
 			break
 		}
 	}
-
-	g = protobuf.Generation{
-		Uuid:   uuid.New().String(),
-		Source: &protobuf.Source{
-			Source: &protobuf.Source_Git{
-				Git: &protobuf.Git{
-					RepositorySubdir:        repositoryDir,
-					SystemAttr:              systemAttr,
-					Hostname:                hostname,
-					SelectedRemoteUrl:       selectedRemoteUrl,
-					SelectedRemoteName:      rs.SelectedRemoteName,
-					SelectedBranchName:      rs.SelectedBranchName,
-					SelectedCommitId:        rs.SelectedCommitId,
-					SelectedCommitMsg:       rs.SelectedCommitMsg,
-					SelectedBranchIsTesting: rs.SelectedBranchIsTesting,
-					MainCommitId:            rs.MainCommitId,
-					MainRemoteName:          rs.MainRemoteName,
-					MainBranchName:          rs.MainBranchName,
-				},
+	return &protobuf.Source{
+		Source: &protobuf.Source_Git{
+			Git: &protobuf.Git{
+				RepositorySubdir:        repositoryDir,
+				SystemAttr:              systemAttr,
+				Hostname:                hostname,
+				SelectedRemoteUrl:       selectedRemoteUrl,
+				SelectedRemoteName:      rs.SelectedRemoteName,
+				SelectedBranchName:      rs.SelectedBranchName,
+				SelectedCommitId:        rs.SelectedCommitId,
+				SelectedCommitMsg:       rs.SelectedCommitMsg,
+				SelectedBranchIsTesting: rs.SelectedBranchIsTesting,
+				MainCommitId:            rs.MainCommitId,
+				MainRemoteName:          rs.MainRemoteName,
+				MainBranchName:          rs.MainBranchName,
 			},
 		},
-		EvalStatus:   EvalInit.String(),
-		BuildStatus: BuildInit.String(),
-		AttemptNumber: 0,
+	}
+}
+
+// NewOCISource creates the Source of a generation from an OCI repository status.
+func NewOCISource(hostname, repositoryDir, systemAttr string, rs *protobuf.OCIRepositoryStatus) *protobuf.Source {
+	selectedRemoteUrl := ""
+	for _, remote := range rs.Remotes {
+		if remote.Name == rs.SelectedRemoteName {
+			selectedRemoteUrl = remote.Url
+			break
+		}
+	}
+	return &protobuf.Source{
+		Source: &protobuf.Source_Oci{
+			Oci: &protobuf.OCI{
+				RepositorySubdir:   repositoryDir,
+				SystemAttr:         systemAttr,
+				Hostname:           hostname,
+				SelectedRemoteUrl:  selectedRemoteUrl,
+				SelectedRemoteName: rs.SelectedRemoteName,
+				SelectedTag:        rs.SelectedTag,
+				SelectedDigest:     rs.SelectedDigest,
+				SelectedIsTesting:  rs.SelectedIsTesting,
+				SelectedRevision:   rs.SelectedRevision,
+				SelectedSourceUrl:  rs.SelectedSourceUrl,
+				SelectedCreated:    rs.SelectedCreated,
+				MainDigest:         rs.MainDigest,
+				MainTag:            rs.MainTag,
+				MainCreated:        rs.MainCreated,
+				MainRemoteName:     rs.MainRemoteName,
+			},
+		},
+	}
+}
+
+func (s *Store) NewGeneration(source *protobuf.Source, buildAttemptsLimit int) (g protobuf.Generation) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	g = protobuf.Generation{
+		Uuid:               uuid.New().String(),
+		Source:             source,
+		EvalStatus:         EvalInit.String(),
+		BuildStatus:        BuildInit.String(),
+		AttemptNumber:      0,
 		BuildAttemptsLimit: int32(buildAttemptsLimit),
 	}
 	s.persisted.Generations = append(s.persisted.Generations, &g)
@@ -158,6 +196,12 @@ func GenerationShow(g *protobuf.Generation) {
 		git := g.Source.GetGit()
 		fmt.Printf("%sCommit ID %s from %s/%s\n", padding, git.SelectedCommitId, git.SelectedRemoteName, git.SelectedBranchName)
 		fmt.Printf("%sCommit message: %s\n", padding, strings.Trim(git.SelectedCommitMsg, "\n"))
+	}
+	if ociSource := g.GetSource().GetOci(); ociSource != nil {
+		fmt.Printf("%sArtifact %s from %s/%s\n", padding, ociSource.SelectedDigest, ociSource.SelectedRemoteName, g.Source.RefName())
+		if ociSource.SelectedRevision != "" {
+			fmt.Printf("%sRevision: %s\n", padding, ociSource.SelectedRevision)
+		}
 	}
 
 	if g.EvalStatus == EvalInit.String() {

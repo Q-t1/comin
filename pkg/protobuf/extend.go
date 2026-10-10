@@ -1,13 +1,89 @@
 package protobuf
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
-// getGitFromGeneration is a helper function to safely extract Git source from a Generation
-func getGitFromGeneration(g *Generation) *Git {
-	if g != nil && g.Source != nil {
-		return g.Source.GetGit()
+// The following accessors expose the attributes shared by all source
+// types. They are nil safe and return zero values when the source is
+// not set.
+
+// RemoteName returns the name of the remote the source has been fetched from.
+func (s *Source) RemoteName() string {
+	switch {
+	case s.GetGit() != nil:
+		return s.GetGit().SelectedRemoteName
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedRemoteName
 	}
-	return &Git{}
+	return ""
+}
+
+// RefName returns the name of the reference the source has been
+// selected from: the Git branch or the OCI tag. When an OCI artifact
+// is pinned by digest, this is "main" or "testing".
+func (s *Source) RefName() string {
+	switch {
+	case s.GetGit() != nil:
+		return s.GetGit().SelectedBranchName
+	case s.GetOci() != nil:
+		if s.GetOci().SelectedTag != "" {
+			return s.GetOci().SelectedTag
+		}
+		if s.IsTesting() {
+			return "testing"
+		}
+		return "main"
+	}
+	return ""
+}
+
+// Id returns the identifier of the source content: the Git commit ID
+// or the OCI manifest digest.
+func (s *Source) Id() string {
+	switch {
+	case s.GetGit() != nil:
+		return s.GetGit().SelectedCommitId
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedDigest
+	}
+	return ""
+}
+
+// Message returns a message describing the source content: the Git
+// commit message or the revision the OCI artifact has been built from.
+func (s *Source) Message() string {
+	switch {
+	case s.GetGit() != nil:
+		return strings.Trim(s.GetGit().SelectedCommitMsg, "\n")
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedRevision
+	}
+	return ""
+}
+
+// IsTesting returns true if the source has been selected from a
+// testing reference.
+func (s *Source) IsTesting() bool {
+	switch {
+	case s.GetGit() != nil:
+		return s.GetGit().SelectedBranchIsTesting.GetValue()
+	case s.GetOci() != nil:
+		return s.GetOci().SelectedIsTesting.GetValue()
+	}
+	return false
+}
+
+// Hostname returns the hostname of the configuration to deploy.
+func (s *Source) Hostname() string {
+	switch {
+	case s.GetGit() != nil:
+		return s.GetGit().Hostname
+	case s.GetOci() != nil:
+		return s.GetOci().Hostname
+	}
+	return ""
 }
 
 // Short return a short line for each logs.
@@ -18,23 +94,23 @@ func (event *Event) Short() string {
 	case *Event_EvalStartedType:
 		eventType = "eval-started   "
 		g := t.EvalStartedType.Generation
-		git := getGitFromGeneration(g)
-		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s", g.Uuid, git.SelectedRemoteName, git.SelectedBranchName, git.SelectedCommitId)
+		src := g.GetSource()
+		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s", g.Uuid, src.RemoteName(), src.RefName(), src.Id())
 	case *Event_EvalFinishedType:
 		eventType = "eval-finished  "
 		g := t.EvalFinishedType.Generation
-		git := getGitFromGeneration(g)
-		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s status=%s", g.Uuid, git.SelectedRemoteName, git.SelectedBranchName, git.SelectedCommitId, g.EvalStatus)
+		src := g.GetSource()
+		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s status=%s", g.Uuid, src.RemoteName(), src.RefName(), src.Id(), g.EvalStatus)
 	case *Event_BuildStartedType:
 		eventType = "build-started  "
 		g := t.BuildStartedType.Generation
-		git := getGitFromGeneration(g)
-		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s", g.Uuid, git.SelectedRemoteName, git.SelectedBranchName, git.SelectedCommitId)
+		src := g.GetSource()
+		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s", g.Uuid, src.RemoteName(), src.RefName(), src.Id())
 	case *Event_BuildFinishedType:
 		eventType = "build-finished "
 		g := t.BuildFinishedType.Generation
-		git := getGitFromGeneration(g)
-		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s status=%s", g.Uuid, git.SelectedRemoteName, git.SelectedBranchName, git.SelectedCommitId, g.BuildStatus)
+		src := g.GetSource()
+		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s status=%s", g.Uuid, src.RemoteName(), src.RefName(), src.Id(), g.BuildStatus)
 	case *Event_ConfirmationSubmittedType:
 		eventType = "cf-submitted   "
 	case *Event_ConfirmationCancelledType:
@@ -49,14 +125,14 @@ func (event *Event) Short() string {
 		eventType = "dpl-started    "
 		g := t.DeploymentStartedType.Deployment.Generation
 		d := t.DeploymentStartedType.Deployment
-		git := getGitFromGeneration(g)
-		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s op=%s", g.Uuid, git.SelectedRemoteName, git.SelectedBranchName, git.SelectedCommitId, d.Operation)
+		src := g.GetSource()
+		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s op=%s", g.Uuid, src.RemoteName(), src.RefName(), src.Id(), d.Operation)
 	case *Event_DeploymentFinishedType:
 		eventType = "dpl-finished   "
 		g := t.DeploymentFinishedType.Deployment.Generation
 		d := t.DeploymentFinishedType.Deployment
-		git := getGitFromGeneration(g)
-		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s op=%s status=%s", g.Uuid, git.SelectedRemoteName, git.SelectedBranchName, git.SelectedCommitId, d.Operation, d.Status)
+		src := g.GetSource()
+		payload = fmt.Sprintf("gen-uuid=%s ref-id=%s/%s/%s op=%s status=%s", g.Uuid, src.RemoteName(), src.RefName(), src.Id(), d.Operation, d.Status)
 	case *Event_RebootRequired_:
 		eventType = "reboot-required"
 	case *Event_ManagerState_:

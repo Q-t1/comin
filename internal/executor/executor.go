@@ -13,17 +13,20 @@ import (
 type EvalFunc func(ctx context.Context, source *protobuf.Source, stdout, stderr io.WriteCloser) (drvPath string, outPath string, machineId string, err error)
 type BuildFunc func(ctx context.Context, drvPath string, stdout, stdin io.WriteCloser) error
 
-func New(repositoryType, repositoryPath string, submodules bool) (e Executor, err error) {
+// New creates an executor. repositoryPath is the path of the local Git
+// repository and ociPath is the directory where OCI artifacts are
+// extracted.
+func New(repositoryType, repositoryPath, ociPath string, submodules bool) (e Executor, err error) {
 	switch repositoryType {
 	case "flake":
 		if runtime.GOOS == "darwin" {
-			return NewGitNixFlakeDarwin(repositoryPath, submodules)
+			return NewGitNixFlakeDarwin(repositoryPath, ociPath, submodules)
 		} else {
-			return NewGitNixFlakeNixOS(repositoryPath, submodules)
+			return NewGitNixFlakeNixOS(repositoryPath, ociPath, submodules)
 		}
 
 	case "nix":
-		return NewGitNixNixOS(repositoryPath, submodules)
+		return NewGitNixNixOS(repositoryPath, ociPath, submodules)
 	}
 	return e, fmt.Errorf("failed to create the executor: %s", err)
 }
@@ -44,19 +47,31 @@ type Executor interface {
 	IsStorePathExist(string) bool
 }
 
-func NewGitNixFlakeNixOS(repositoryPath string, submodules bool) (e Executor, err error) {
+func NewGitNixFlakeNixOS(repositoryPath, ociPath string, submodules bool) (e Executor, err error) {
 	logrus.Info("executor: creating a NixOS flake executor")
-	e, err = NewGitNixFlake("nixosConfigurations", repositoryPath, submodules)
-	return
+	n, err := NewGitNixFlake("nixosConfigurations", repositoryPath, submodules)
+	if err != nil {
+		return nil, err
+	}
+	n.ociPath = ociPath
+	return n, nil
 }
-func NewGitNixFlakeDarwin(repositoryPath string, submodules bool) (e Executor, err error) {
+func NewGitNixFlakeDarwin(repositoryPath, ociPath string, submodules bool) (e Executor, err error) {
 	logrus.Info("executor: creating a nix-darwin flake executor")
-	e, err = NewGitNixFlake("darwinConfigurations", repositoryPath, submodules)
-	return
+	n, err := NewGitNixFlake("darwinConfigurations", repositoryPath, submodules)
+	if err != nil {
+		return nil, err
+	}
+	n.ociPath = ociPath
+	return n, nil
 }
 
-func NewGitNixNixOS(repositoryPath string, submodules bool) (e Executor, err error) {
+func NewGitNixNixOS(repositoryPath, ociPath string, submodules bool) (e Executor, err error) {
 	logrus.Info("executor: creating a NixOS executor")
-	e, err = NewGitNix(repositoryPath, submodules)
-	return
+	n, err := NewGitNix(repositoryPath, submodules)
+	if err != nil {
+		return nil, err
+	}
+	n.ociPath = ociPath
+	return n, nil
 }

@@ -21,14 +21,6 @@ var (
 	dimStyle     = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
 )
 
-// getGitFromGeneration is a helper function to safely extract Git source from a Generation
-func getGitFromGeneration(g *protobuf.Generation) *protobuf.Git {
-	if g != nil && g.Source != nil {
-		return g.Source.GetGit()
-	}
-	return &protobuf.Git{}
-}
-
 func formatTime(t time.Time) string {
 	if time.Since(t) < 10*time.Second {
 		return "less than 10 seconds ago"
@@ -56,6 +48,7 @@ func boolToString(v bool) string {
 type FetcherModel struct {
 	IsFetching          bool
 	GitRepositoryStatus *protobuf.GitRepositoryStatus
+	OCIRepositoryStatus *protobuf.OCIRepositoryStatus
 }
 
 func (fm FetcherModel) View() string {
@@ -69,6 +62,9 @@ func (fm FetcherModel) View() string {
 	}
 	b.WriteString(sectionStyle.Render("Fetcher") + "      " + status + "\n")
 
+	if fm.OCIRepositoryStatus != nil {
+		fm.ociView(&b)
+	}
 	if fm.GitRepositoryStatus == nil {
 		return b.String()
 	}
@@ -112,6 +108,45 @@ func (fm FetcherModel) View() string {
 	return b.String()
 }
 
+func shortDigest(digest string) string {
+	digest = strings.TrimPrefix(digest, "sha256:")
+	if len(digest) > 8 {
+		return digest[:8]
+	}
+	return digest
+}
+
+func (fm FetcherModel) ociView(b *strings.Builder) {
+	if fm.OCIRepositoryStatus.ErrorMsg != "" {
+		b.WriteString("  " + labelStyle.Render("Error:     ") + fm.OCIRepositoryStatus.ErrorMsg + "\n")
+	}
+	for _, r := range fm.OCIRepositoryStatus.Remotes {
+		fetchedAt := ""
+		if r.FetchedAt != nil {
+			fetchedAt = dimStyle.Render(" fetched " + formatTime(r.FetchedAt.AsTime()))
+		}
+		b.WriteString("  " + labelStyle.Render("Remote:    ") + r.Name + fetchedAt + "\n")
+		b.WriteString("    " + labelStyle.Render("URL:     ") + r.Url + "\n")
+		if r.FetchErrorMsg != "" {
+			b.WriteString("    " + labelStyle.Render("Error:   ") + r.FetchErrorMsg + "\n")
+		}
+		for _, ref := range []struct {
+			label string
+			ref   *protobuf.OCIReference
+		}{{"Main:    ", r.Main}, {"Testing: ", r.Testing}} {
+			if ref.ref.GetSpec() == "" {
+				b.WriteString("    " + labelStyle.Render(ref.label+"not defined in the configuration") + "\n")
+				continue
+			}
+			b.WriteString("    " + labelStyle.Render(ref.label) +
+				ref.ref.Spec + " " + ref.ref.Tag + "/" + shortDigest(ref.ref.Digest) + "  " + ref.ref.Revision + "\n")
+			if ref.ref.ErrorMsg != "" {
+				b.WriteString("      " + labelStyle.Render("Error: ") + ref.ref.ErrorMsg + "\n")
+			}
+		}
+	}
+}
+
 // BuilderModel holds the current builder state and renders it.
 type BuilderModel struct {
 	IsEvaluating bool
@@ -142,14 +177,14 @@ func (bm BuilderModel) View() string {
 
 	if bm.Generation != nil {
 		g := bm.Generation
-		git := getGitFromGeneration(g)
-		commitID := git.SelectedCommitId
+		src := g.GetSource()
+		commitID := src.Id()
 		if len(commitID) > 8 {
 			commitID = commitID[:8]
 		}
 		b.WriteString("  " + labelStyle.Render("Commit:  ") +
-			fmt.Sprintf("%s from %s/%s\n", commitID, git.SelectedRemoteName, git.SelectedBranchName))
-		if msg := commitMsgSummary(git.SelectedCommitMsg); msg != "" {
+			fmt.Sprintf("%s from %s/%s\n", commitID, src.RemoteName(), src.RefName()))
+		if msg := commitMsgSummary(src.Message()); msg != "" {
 			b.WriteString("  " + labelStyle.Render("Message: ") + msg + "\n")
 		}
 
@@ -226,14 +261,14 @@ func (dm DeployerModel) View() string {
 		d := dm.Deployment
 		if d.Generation != nil {
 			g := d.Generation
-			git := getGitFromGeneration(g)
-			commitID := git.SelectedCommitId
+			src := g.GetSource()
+			commitID := src.Id()
 			if len(commitID) > 8 {
 				commitID = commitID[:8]
 			}
 			b.WriteString("  " + labelStyle.Render("Commit:    ") +
-				fmt.Sprintf("%s from %s/%s\n", commitID, git.SelectedRemoteName, git.SelectedBranchName))
-			if msg := commitMsgSummary(git.SelectedCommitMsg); msg != "" {
+				fmt.Sprintf("%s from %s/%s\n", commitID, src.RemoteName(), src.RefName()))
+			if msg := commitMsgSummary(src.Message()); msg != "" {
 				b.WriteString("  " + labelStyle.Render("Message:   ") + msg + "\n")
 			}
 		}
@@ -320,6 +355,7 @@ func UpdateManager(manager *ManagerModel, event *protobuf.Event) {
 		if state.Fetcher != nil {
 			manager.Fetcher.IsFetching = state.Fetcher.IsFetching.GetValue()
 			manager.Fetcher.GitRepositoryStatus = state.Fetcher.GetGitRepositoryStatus()
+			manager.Fetcher.OCIRepositoryStatus = state.Fetcher.GetOciRepositoryStatus()
 		}
 	case *protobuf.Event_EvalStartedType:
 		manager.Builder.IsEvaluating = true
@@ -342,6 +378,7 @@ func UpdateManager(manager *ManagerModel, event *protobuf.Event) {
 	case *protobuf.Event_Fetched_:
 		manager.Fetcher.IsFetching = false
 		manager.Fetcher.GitRepositoryStatus = e.Fetched.GetGitRepositoryStatus()
+		manager.Fetcher.OCIRepositoryStatus = e.Fetched.GetOciRepositoryStatus()
 	case *protobuf.Event_Suspend_:
 		manager.IsSuspended = true
 		manager.Builder.IsSuspended = true

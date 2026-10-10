@@ -181,3 +181,39 @@ func TestNixExecutorDeploy(t *testing.T) {
 		})
 	}
 }
+
+func TestFlakeUrl(t *testing.T) {
+	n, err := NewGitNixFlake("nixosConfigurations", "/var/lib/comin/repository", true)
+	assert.NoError(t, err)
+	n.ociPath = "/var/lib/comin/oci"
+
+	flakeUrl, hostname, err := n.flakeUrl(&protobuf.Source{
+		Source: &protobuf.Source_Git{
+			Git: &protobuf.Git{
+				RepositorySubdir:   "infra",
+				Hostname:           "machine",
+				SelectedCommitId:   "abcd",
+				SelectedBranchName: "main",
+			},
+		},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "git+file:///var/lib/comin/repository?dir=infra&rev=abcd&ref=main&submodules=1", flakeUrl)
+	assert.Equal(t, "machine", hostname)
+
+	flakeUrl, hostname, err = n.flakeUrl(&protobuf.Source{
+		Source: &protobuf.Source_Oci{
+			Oci: &protobuf.OCI{
+				RepositorySubdir: "infra",
+				Hostname:         "machine",
+				SelectedDigest:   "sha256:abcd",
+			},
+		},
+	})
+	assert.NoError(t, err)
+	assert.Equal(t, "path:/var/lib/comin/oci/sha256-abcd?dir=infra", flakeUrl)
+	assert.Equal(t, "machine", hostname)
+
+	_, _, err = n.flakeUrl(&protobuf.Source{})
+	assert.Error(t, err)
+}

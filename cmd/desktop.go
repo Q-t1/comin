@@ -115,8 +115,7 @@ func handler(event *protobuf.Event) error {
 	case *protobuf.Event_BuildStartedType:
 		g := event.Type.(*protobuf.Event_BuildStartedType).BuildStartedType.Generation
 		if g.BuildReason == builder.BuildReasonNeedBuild {
-			git := getGitFromGeneration(g)
-			message = fmt.Sprintf("A new commit from %s/%s is building.", git.SelectedRemoteName, git.SelectedBranchName)
+			message = fmt.Sprintf("A new commit from %s/%s is building.", g.GetSource().RemoteName(), g.GetSource().RefName())
 		}
 	case *protobuf.Event_BuildFinishedType:
 		dpl := event.Type.(*protobuf.Event_BuildFinishedType).BuildFinishedType.Generation
