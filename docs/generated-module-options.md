@@ -178,6 +178,30 @@ signed integer
 
 
 
+## services\.comin\.cosignPublicKeyPaths
+
+
+
+A list of cosign public key file paths\. When set, an OCI
+artifact is only deployed if it is signed by one of these
+keys\. Both the Sigstore bundle format (cosign >= v3) and the
+legacy format are supported\.
+
+
+
+*Type:*
+list of string
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+
+
 ## services\.comin\.debug
 
 
@@ -497,6 +521,605 @@ null
 
 
 
+## services\.comin\.ociRemotes
+
+
+
+Ordered list of OCI repositories to pull the configuration
+from, as an alternative to Git ` remotes `\. The configuration
+is an OCI artifact, such as pushed by ` flux push artifact `
+or ` oras push `\. Several repositories can be used to pull
+from registry mirrors\.
+
+
+
+*Type:*
+list of (submodule)
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
+
+
+
+*Example:*
+
+```nix
+[{
+  name = "ghcr";
+  url = "oci://ghcr.io/owner/infra";
+  ref.main.semver = ">=1.0.0";
+  auth.password_path = "/run/secrets/ghcr-token";
+}]
+
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.auth
+
+
+
+Authentication options\. The registry is accessed anonymously by default\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.auth\.docker_config_path
+
+
+
+The path of a Docker ` config.json ` file
+containing the registry credentials, which can
+be used instead of ` password_path `\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.auth\.password_path
+
+
+
+The path of a file containing the registry password or token\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.auth\.username
+
+
+
+The username used with the password\. Note that any
+non empty username is valid on GitHub and GitLab
+registries\.
+
+
+
+*Type:*
+string
+
+
+
+*Default:*
+
+```nix
+"comin"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.insecure
+
+
+
+Whether to use HTTP instead of HTTPS to access the registry\.
+
+
+
+*Type:*
+boolean
+
+
+
+*Default:*
+
+```nix
+false
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.layer_media_type
+
+
+
+The media type of the artifact layer containing the
+configuration\. When null, the first layer with a
+tar or compressed tar media type is used\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"application/vnd.cncf.flux.content.v1.tar+gzip"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.name
+
+
+
+The name of the remote\.
+
+
+
+*Type:*
+string
+
+
+
+## services\.comin\.ociRemotes\.\*\.poller
+
+
+
+The poller options\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.poller\.period
+
+
+
+The poller period in seconds\.
+
+
+
+*Type:*
+signed integer
+
+
+
+*Default:*
+
+```nix
+60
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref
+
+
+
+The references of the artifacts to pull\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.main
+
+
+
+The reference of the main artifact\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.main\.digest
+
+
+
+The digest the main artifact is pinned to\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"sha256:3b6cdcc7adcc9a84d3214ee1c029543789d90b5ae69debe9efa3f66e982875de"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.main\.operation
+
+
+
+The switch-to-configuration operation to do on the main artifact\.
+
+
+
+*Type:*
+one of “switch”, “test”, “boot”
+
+
+
+*Default:*
+
+```nix
+"switch"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.main\.semver
+
+
+
+A semver constraint\. The highest tag matching this
+constraint is selected\. Artifacts with a version lower
+than the deployed one are refused\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+">=1.0.0"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.main\.semver_filter
+
+
+
+A regular expression tags have to match to be considered
+by the semver constraint\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+".*-rc.*"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.main\.tag
+
+
+
+The tag of the main artifact\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+` latest ` when ` semver ` and ` digest ` are not set
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.testing
+
+
+
+The reference of the testing artifact\. A
+testing artifact is preferred when it is newer
+than the main artifact\.
+
+
+
+*Type:*
+submodule
+
+
+
+*Default:*
+
+```nix
+{ }
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.testing\.digest
+
+
+
+The digest the testing artifact is pinned to\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+"sha256:3b6cdcc7adcc9a84d3214ee1c029543789d90b5ae69debe9efa3f66e982875de"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.testing\.operation
+
+
+
+The switch-to-configuration operation to do on the testing artifact\.
+
+
+
+*Type:*
+one of “switch”, “test”, “boot”
+
+
+
+*Default:*
+
+```nix
+"test"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.testing\.semver
+
+
+
+A semver constraint\. The highest tag matching this
+constraint is selected\. Artifacts with a version lower
+than the deployed one are refused\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+">=1.0.0"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.testing\.semver_filter
+
+
+
+A regular expression tags have to match to be considered
+by the semver constraint\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+
+```nix
+null
+```
+
+
+
+*Example:*
+
+```nix
+".*-rc.*"
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.ref\.testing\.tag
+
+
+
+The tag of the testing artifact\.
+
+
+
+*Type:*
+null or string
+
+
+
+*Default:*
+` testing-${config.services.comin.hostname} ` when ` semver ` and ` digest ` are not set
+
+
+
+## services\.comin\.ociRemotes\.\*\.timeout
+
+
+
+The fetch timeout in seconds\.
+
+
+
+*Type:*
+signed integer
+
+
+
+*Default:*
+
+```nix
+300
+```
+
+
+
+## services\.comin\.ociRemotes\.\*\.url
+
+
+
+The URL of the OCI repository\.
+
+
+
+*Type:*
+string matching the pattern oci://\.+
+
+
+
+*Example:*
+
+```nix
+"oci://ghcr.io/owner/infra"
+```
+
+
+
 ## services\.comin\.postBuildCommand
 
 
@@ -542,7 +1165,11 @@ environment variables: ` COMIN_PHASE ` (set to ` deploy `),
 ` COMIN_GIT_SHA `, ` COMIN_GIT_REF `, ` COMIN_GIT_MSG `,
 ` COMIN_HOSTNAME `, ` COMIN_GENERATION `, ` COMIN_STATUS `
 (one of ` init `, ` running `, ` done ` or ` failed `) and
-` COMIN_ERROR_MSG `\.
+` COMIN_ERROR_MSG `\. When the configuration comes from an OCI
+artifact, ` COMIN_GIT_SHA ` and ` COMIN_GIT_REF ` are read from
+its ` org.opencontainers.image.revision ` annotation and the
+` COMIN_OCI_REMOTE `, ` COMIN_OCI_TAG ` and ` COMIN_OCI_DIGEST `
+variables are also provided\.
 
 
 
@@ -578,6 +1205,14 @@ Ordered list of repositories to pull\.
 
 *Type:*
 list of (submodule)
+
+
+
+*Default:*
+
+```nix
+[ ]
+```
 
 
 
