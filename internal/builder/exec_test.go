@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"sync"
 	"testing"
 	"time"
 
@@ -69,4 +70,41 @@ func TestExecError(t *testing.T) {
 	e.Wait()
 	assert.True(t, e.finished.Load())
 	assert.ErrorContains(t, e.getErr(), "An error occurred")
+}
+
+type immediateRunnable struct{}
+
+func (immediateRunnable) Run(context.Context) error { return nil }
+
+// TestExecWaitFastRunnable ensures Wait returns when the runnable
+// finishes before Wait starts to wait for it.
+func TestExecWaitFastRunnable(t *testing.T) {
+	var wg sync.WaitGroup
+	for range 8 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for range 20000 {
+				e := NewExec(immediateRunnable{}, time.Second)
+				e.Start(t.Context())
+				// As in the builder, Wait is called from another goroutine
+				waited := make(chan struct{})
+				go func() {
+					e.Wait()
+					close(waited)
+				}()
+				<-waited
+			}
+		}()
+	}
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(60 * time.Second):
+		t.Fatal("Exec.Wait never returned")
+	}
 }
